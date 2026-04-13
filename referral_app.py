@@ -6,7 +6,7 @@ import string
 from datetime import datetime
 
 # Page setup
-st.set_page_config(page_title="Ali Mobile Repairing ", page_icon="📱", layout="centered")
+st.set_page_config(page_title="Ali Mobile Repair ", page_icon="📱", layout="centered")
 
 # Custom CSS for better look
 st.markdown("""
@@ -83,7 +83,7 @@ else:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس"])
 
 # Header
-st.markdown('<div class="main-header"><h1>📱 Ali Mobile Repair</h1><p>ریفرل کریں اور ڈسکاؤنٹ حاصل کریں</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📱 Ali Mobile Repairing</h1><p>ریفرل کریں اور ڈسکاؤنٹ حاصل کریں</p></div>', unsafe_allow_html=True)
 
 # ==================== REGISTRATION ====================
 if menu == "✨ نیا رجسٹریشن":
