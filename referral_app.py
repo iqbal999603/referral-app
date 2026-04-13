@@ -84,7 +84,7 @@ else:
 
 # Header
 st.markdown('<div class="main-header"><h1>📱 Ali Mobile Repairing</h1><p>ریفرل کریں اور ڈسکاؤنٹ حاصل کریں</p>
-</h1><p>03006762827</p></div>', unsafe_allow_html=True)
+<p>03006762827</p></div>', unsafe_allow_html=True)
 
 # ==================== REGISTRATION ====================
 if menu == "✨ نیا رجسٹریشن":
