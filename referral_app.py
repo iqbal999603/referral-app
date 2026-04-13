@@ -75,7 +75,7 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 # خفیہ کوڈ ڈالنے کا خانہ (صرف آپ کو پتہ ہے)
 admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="صرف ایڈمن")
 
-if admin_secret == "admin123":
+if admin_secret == "admin@12345":
     # اگر خفیہ کوڈ درست ہے تو ایڈمن کا آپشن دکھے
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", "👑 ایڈمن"])
 else:
@@ -203,7 +203,7 @@ elif menu == "🏠 میرے پوائنٹس":
 elif menu == "👑 ایڈمن":
     admin_pass = st.text_input("ایڈمن پاس ورڈ", type="password")
     
-    if admin_pass == "admin123":
+    if admin_pass == "admin12345":
         st.success("ایڈمن پینل میں خوش آمدید")
         
         c.execute("SELECT id, name, mobile, referral_code, points FROM users ORDER BY points DESC")
