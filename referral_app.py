@@ -69,9 +69,18 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_name = None
     st.session_state.user_code = None
 
-# Sidebar menu
+# Sidebar menu with hidden admin
 st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=80)
-menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", "👑 ایڈمن"])
+
+# خفیہ کوڈ ڈالنے کا خانہ (صرف آپ کو پتہ ہے)
+admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="صرف ایڈمن")
+
+if admin_secret == "ALI@2025":
+    # اگر خفیہ کوڈ درست ہے تو ایڈمن کا آپشن دکھے
+    menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", "👑 ایڈمن"])
+else:
+    # اگر خفیہ کوڈ غلط ہے یا نہیں ڈالا تو صرف 3 آپشن دکھیں
+    menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس"])
 
 # Header
 st.markdown('<div class="main-header"><h1>📱 Ali Mobile Repair</h1><p>ریفرل کریں اور ڈسکاؤنٹ حاصل کریں</p></div>', unsafe_allow_html=True)
