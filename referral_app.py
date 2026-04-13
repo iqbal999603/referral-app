@@ -75,7 +75,7 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 # خفیہ کوڈ ڈالنے کا خانہ (صرف آپ کو پتہ ہے)
 admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="صرف ایڈمن")
 
-if admin_secret == "ALI@2025":
+if admin_secret == "admin123":
     # اگر خفیہ کوڈ درست ہے تو ایڈمن کا آپشن دکھے
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", "👑 ایڈمن"])
 else:
