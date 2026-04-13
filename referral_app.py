@@ -77,7 +77,7 @@ admin_secret = st.sidebar.text_input("🔑  ", type="password", placeholder=" Be
 
 if admin_secret == "admin@12345":
     # اگر خفیہ کوڈ درست ہے تو ایڈمن کا آپشن دکھے
-    menu = st.sidebar.radio("📌 "Select", ["✨ New Registration", "🔐 Login", "🏠 My Points", "👑 Admin"])
+    menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", "👑 ایڈمن"])
 else:
     # اگر خفیہ کوڈ غلط ہے یا نہیں ڈالا تو صرف 3 آپشن دکھیں
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس"])
