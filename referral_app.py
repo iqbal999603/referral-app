@@ -73,7 +73,7 @@ if 'logged_in' not in st.session_state:
 st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=80)
 
 # خفیہ کوڈ ڈالنے کا خانہ (صرف آپ کو پتہ ہے)
-admin_secret = st.sidebar.text_input("🔑  کوڈ", type="password", placeholder="صرف ایڈمن")
+admin_secret = st.sidebar.text_input("🔑  کوڈ", type="password", placeholder=" Becare")
 
 if admin_secret == "admin@12345":
     # اگر خفیہ کوڈ درست ہے تو ایڈمن کا آپشن دکھے
