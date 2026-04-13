@@ -83,7 +83,7 @@ else:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس"])
 
 # Header
-st.markdown('<div class="main-header"><h1>📱 Ali Mobile Repairing 03006762827</h1><p>ریفرل کریں اور موبائل ریپئرنگ میں ڈسکاؤنٹ حاصل کریں</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing 03006762827</h1><p>ریفرل کریں اور موبائل ریپئرنگ میں ڈسکاؤنٹ حاصل کریں</p></div>', unsafe_allow_html=True)
 
 # ==================== REGISTRATION ====================
 if menu == "✨ نیا رجسٹریشن":
@@ -96,7 +96,7 @@ if menu == "✨ نیا رجسٹریشن":
         mobile = st.text_input("موبائل نمبر")
         password = st.text_input("پاس ورڈ", type="password")
         confirm = st.text_input("پاس ورڈ کی تصدیق", type="password")
-        ref_code = st.text_input("کسی کا ریفرل کوڈ ہے؟ (اختیاری)")
+        ref_code = st.text_input("کسی کا ریفرل کوڈ ہے؟ ")
         submitted = st.form_submit_button("رجسٹر کریں")
         
         if submitted:
