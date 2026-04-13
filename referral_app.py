@@ -6,7 +6,7 @@ import string
 from datetime import datetime
 
 # Page setup
-st.set_page_config(page_title="Ali Mobile Repair 03006762827", page_icon="📱", layout="centered")
+st.set_page_config(page_title="Ali Mobile Repairing ", page_icon="📱", layout="centered")
 
 # Custom CSS for better look
 st.markdown("""
