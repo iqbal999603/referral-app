@@ -6,10 +6,6 @@ import string
 from datetime import datetime, timedelta
 import pandas as pd
 import urllib.parse
-import qrcode
-from io import BytesIO
-from PIL import Image
-import base64
 
 # Page setup
 st.set_page_config(page_title="Ali Mobile Repair - ریفرل سسٹم", page_icon="📱", layout="centered")
@@ -32,6 +28,21 @@ st.markdown("""
     .lucky-card { background: linear-gradient(135deg, #a55eea, #5f27cd); padding: 15px; border-radius: 15px; color: white; }
     .streak-card { background: linear-gradient(135deg, #20bf6b, #26de81); padding: 10px; border-radius: 10px; text-align: center; }
     .profile-pic { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid white; }
+    .social-share-btn {
+        display: inline-block;
+        padding: 8px 15px;
+        margin: 5px;
+        border-radius: 30px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
+        transition: 0.3s;
+        text-align: center;
+    }
+    .whatsapp { background: #25D366; }
+    .facebook { background: #1877F2; }
+    .twitter { background: #1DA1F2; }
+    .telegram { background: #0088cc; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,8 +63,7 @@ def init_db():
                   join_date TEXT,
                   city TEXT,
                   streak_days INTEGER DEFAULT 0,
-                  last_referral_date TEXT,
-                  profile_pic TEXT)''')
+                  last_referral_date TEXT)''')
     
     # Referral history table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
@@ -224,15 +234,6 @@ def get_social_share_urls(referral_link, referral_code, user_name):
     }
     return urls
 
-def generate_qr_code(data):
-    qr = qrcode.QRCode(version=1, box_size=4, border=2)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
-
 def update_streak(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
     c.execute("SELECT last_referral_date, streak_days FROM users WHERE id = ?", (user_id,))
@@ -350,7 +351,6 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_mobile = None
     st.session_state.user_name = None
     st.session_state.user_code = None
-    st.session_state.profile_pic = None
 
 # ==================== REFERRAL TRACKING ====================
 query_params = st.query_params
@@ -497,9 +497,9 @@ elif menu == "🏠 میرے پوائنٹس":
         referral_link = f"https://alimobile-referral.streamlit.app/?ref={code}"
         
         # Profile section
-        col1, col2, col3 = st.columns([1, 2, 1])
+        col1, col2 = st.columns([1, 3])
         with col1:
-            st.markdown(f'<div style="text-align:center"><div class="profile-pic" style="background:#667eea; display:flex; align-items:center; justify-content:center; font-size:40px;">📱</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align:center"><div class="profile-pic" style="background:#667eea; display:flex; align-items:center; justify-content:center; font-size:40px; width:80px; height:80px; border-radius:50%;">📱</div></div>', unsafe_allow_html=True)
         with col2:
             st.markdown(f"### {name}")
             st.markdown(f"📱 {mobile} | 📍 {city}")
@@ -515,17 +515,6 @@ elif menu == "🏠 میرے پوائنٹس":
         with col_d:
             total_clicks, total_conversions, _ = get_click_stats(st.session_state.user_id)
             st.metric("👆 کل کلکس", total_clicks)
-        
-        st.markdown("---")
-        
-        # QR Code
-        qr_base64 = generate_qr_code(referral_link)
-        st.markdown("### 📱 QR کوڈ سے شیئر کریں")
-        col_qr1, col_qr2 = st.columns([1, 2])
-        with col_qr1:
-            st.image(f"data:image/png;base64,{qr_base64}", width=120)
-        with col_qr2:
-            st.markdown("دوسرے لوگ اس QR کوڈ کو اسکین کر کے براہ راست رجسٹر ہو سکتے ہیں۔")
         
         st.markdown("---")
         st.markdown("### 🌐 سوشل میڈیا پر شیئر کریں")
