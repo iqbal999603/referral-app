@@ -119,9 +119,9 @@ if menu == "✨ نیا رجسٹریشن":
                         c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
                         referrer = c.fetchone()
                         if referrer:
-                            c.execute("UPDATE users SET points = points + 100 WHERE referral_code=?", (ref_code,))
+                            c.execute("UPDATE users SET points = points + 50 WHERE referral_code=?", (ref_code,))
                             conn.commit()
-                            st.success("🎉 آپ کے ریفرر کو 100 پوائنٹس مل گئے۔")
+                            st.success("🎉 آپ کے ریفرر کو 50 پوائنٹس مل گئے۔")
                         else:
                             st.warning("غلط ریفرل کوڈ۔")
                     
