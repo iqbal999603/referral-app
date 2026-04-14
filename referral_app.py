@@ -83,7 +83,8 @@ else:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس"])
 
 # Header
-st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing Ali Laal Road Layyah 03006762827</h1><h1>ریفرل کرو، ڈسکاؤنٹ پاؤ — صرف اسی دن شاپ بند ہونے سے پہلے پہلے</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing Ali Laal Road Layyah 03006762827</h1><h1>ریفرل کرو،موبائل ریپئرنگ
+ ڈسکاؤنٹ پاؤ — صرف اسی دن شاپ بند ہونے سے پہلے پہلے</h1></div>', unsafe_allow_html=True)
 
 # ==================== REGISTRATION ====================
 if menu == "✨ نیا رجسٹریشن":
