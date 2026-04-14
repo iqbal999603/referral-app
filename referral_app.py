@@ -189,7 +189,7 @@ elif menu == "🏠 میرے پوائنٹس":
         if points >= 200:
             st.success(f"🎁 آپ {discount:.2f} PKR کا ڈسکاؤنٹ حاصل کر سکتے ہیں۔")
         else:
-            need = 200 - points
+            need = 500 - points
             st.info(f"📈 مزید {need} پوائنٹس درکار ہیں (یہ {need*0.5:.2f} PKR ڈسکاؤنٹ کے لیے)")
         
         if st.button("🚪 لاگ آؤٹ"):
