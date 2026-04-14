@@ -5,6 +5,7 @@ import random
 import string
 from datetime import datetime
 import pandas as pd
+import urllib.parse
 
 # Page setup
 st.set_page_config(page_title="Ali Mobile Repair - ریفرل سسٹم", page_icon="📱", layout="centered")
@@ -46,6 +47,27 @@ st.markdown("""
         color: white;
         text-align: center;
     }
+    .social-share-btn {
+        display: inline-block;
+        padding: 8px 15px;
+        margin: 5px;
+        border-radius: 30px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
+        transition: 0.3s;
+        text-align: center;
+    }
+    .social-share-btn:hover {
+        transform: scale(1.05);
+        opacity: 0.9;
+    }
+    .whatsapp { background: #25D366; }
+    .facebook { background: #1877F2; }
+    .twitter { background: #1DA1F2; }
+    .instagram { background: linear-gradient(45deg, #f09433, #d62976, #962fbf); }
+    .telegram { background: #0088cc; }
+    .copy-btn { background: #6c757d; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -103,7 +125,7 @@ def init_db():
                   category_id INTEGER,
                   selection_date TEXT)''')
     
-    # NEW: Referral clicks tracking table
+    # Referral clicks tracking table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referral_code TEXT,
@@ -157,7 +179,6 @@ def mark_notification_read(notif_id):
     conn.commit()
 
 def track_referral_click(referral_code, ip_address):
-    """Track when someone clicks on a referral link"""
     c.execute("SELECT id FROM users WHERE referral_code = ?", (referral_code,))
     user = c.fetchone()
     if user:
@@ -168,16 +189,27 @@ def track_referral_click(referral_code, ip_address):
     return False
 
 def get_click_stats(user_id):
-    """Get click statistics for a user"""
     c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id = ?", (user_id,))
     total_clicks = c.fetchone()[0]
-    
     c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id = ?", (user_id,))
     total_conversions = c.fetchone()[0]
-    
     conversion_rate = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
-    
     return total_clicks, total_conversions, conversion_rate
+
+def get_social_share_urls(referral_link, referral_code, user_name):
+    """Generate social media share URLs"""
+    message = f"📱 Ali Mobile Repair - ریفرل پروگرام!\n\nمیرا ریفرل کوڈ: {referral_code}\nرجسٹر کرنے کے لیے لنک پر کلک کریں:\n{referral_link}\n\nہر ریفرل پر 50 پوائنٹس! 500 پوائنٹس = 250 PKR ڈسکاؤنٹ!"
+    
+    encoded_msg = urllib.parse.quote(message)
+    
+    urls = {
+        "whatsapp": f"https://wa.me/?text={encoded_msg}",
+        "facebook": f"https://www.facebook.com/sharer/sharer.php?u={urllib.parse.quote(referral_link)}&quote={encoded_msg}",
+        "twitter": f"https://twitter.com/intent/tweet?text={encoded_msg}&url={urllib.parse.quote(referral_link)}",
+        "telegram": f"https://t.me/share/url?url={urllib.parse.quote(referral_link)}&text={encoded_msg}",
+        "instagram": f"instagram://library?AssetPath={urllib.parse.quote(referral_link)}"
+    }
+    return urls
 
 # Session state
 if 'logged_in' not in st.session_state:
@@ -188,13 +220,11 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_code = None
 
 # ==================== REFERRAL TRACKING ON PAGE LOAD ====================
-# Check if user came via referral link
 query_params = st.query_params
 if 'ref' in query_params:
     ref_code = query_params['ref']
-    # Get user's IP (simulated - in production use request headers)
     import hashlib
-    ip_address = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:15]  # Simulated unique ID
+    ip_address = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:15]
     track_referral_click(ref_code, ip_address)
 
 # ==================== SIDEBAR ====================
@@ -251,23 +281,19 @@ if menu == "✨ نیا رجسٹریشن":
                             referrer_id = referrer[0]
                             c.execute("UPDATE users SET points = points + 50 WHERE referral_code=?", (ref_code,))
                             conn.commit()
-                            # Mark click as converted
                             c.execute("UPDATE referral_clicks SET is_converted = 1 WHERE referral_code = ? AND is_converted = 0 ORDER BY clicked_at DESC LIMIT 1", (ref_code,))
                             conn.commit()
-                            # Add notification for referrer
                             add_notification(referrer_id, f"🎉 مبارک ہو! {name} نے آپ کے ریفرل کوڈ سے رجسٹر کیا۔ آپ کو 50 پوائنٹس مل گئے۔")
                             st.success("🎉 آپ کے ریفرر کو 50 پوائنٹس مل گئے۔")
                         else:
                             st.warning("غلط ریفرل کوڈ۔")
                     
-                    # Insert user
                     join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by, join_date) VALUES (?,?,?,?,?,?,?)",
                               (name, mobile, hashed_pass, new_code, 0, ref_code if ref_code else None, join_date))
                     user_id = c.lastrowid
                     conn.commit()
                     
-                    # Add to referral history if referred
                     if referrer_id:
                         c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
                                   (referrer_id, user_id, 50, join_date))
@@ -307,7 +333,6 @@ elif menu == "🏠 میرے پوائنٹس":
         st.warning("براہ کرم پہلے لاگ ان کریں۔")
         st.stop()
     
-    # Show notifications
     notifs = get_notifications(st.session_state.user_id)
     if notifs:
         with st.expander("📢 نوٹیفکیشنز"):
@@ -331,7 +356,6 @@ elif menu == "🏠 میرے پوائنٹس":
             st.metric("🔑 ریفرل کوڈ", code)
             st.metric("⭐ پوائنٹس", points)
         
-        # NEW: Show click statistics
         total_clicks, total_conversions, conversion_rate = get_click_stats(st.session_state.user_id)
         
         st.markdown("---")
@@ -350,9 +374,26 @@ elif menu == "🏠 میرے پوائنٹس":
         st.subheader("📤 آپکا ریفرل لنک")
         st.code(referral_link, language="text")
         
-        # WhatsApp share button
-        wa_msg = f"Assalam-o-Alaikum! Ali Mobile Repair میں ریفرل پروگرام ہے۔ میرا ریفرل کوڈ: {code}۔ رجسٹر کرنے کے لیے لنک پر کلک کریں: {referral_link}"
-        st.markdown(f'<a href="https://wa.me/?text={wa_msg}" target="_blank"><button style="background:#25D366; color:white; padding:10px; border:none; border-radius:10px;">📱 واٹس ایپ پر شیئر کریں</button></a>', unsafe_allow_html=True)
+        # ========== NEW: SOCIAL MEDIA SHARING SECTION ==========
+        st.markdown("### 🌐 سوشل میڈیا پر شیئر کریں")
+        
+        social_urls = get_social_share_urls(referral_link, code, name)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.markdown(f'<a href="{social_urls["whatsapp"]}" target="_blank" class="social-share-btn whatsapp" style="display:block;">📱 واٹس ایپ</a>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<a href="{social_urls["facebook"]}" target="_blank" class="social-share-btn facebook" style="display:block;">📘 فیس بک</a>', unsafe_allow_html=True)
+        with col3:
+            st.markdown(f'<a href="{social_urls["twitter"]}" target="_blank" class="social-share-btn twitter" style="display:block;">🐦 ٹویٹر</a>', unsafe_allow_html=True)
+        with col4:
+            st.markdown(f'<a href="{social_urls["telegram"]}" target="_blank" class="social-share-btn telegram" style="display:block;">📨 ٹیلی گرام</a>', unsafe_allow_html=True)
+        with col5:
+            st.markdown(f'<button onclick="navigator.clipboard.writeText(\'{referral_link}\')" class="social-share-btn copy-btn" style="border:none; cursor:pointer;">📋 کاپی لنک</button>', unsafe_allow_html=True)
+        
+        st.caption("💡 انسٹاگرام پر لنک کاپی کر کے بائیو میں لگائیں یا دوستوں کو بھیجیں۔")
+        
+        st.markdown("---")
         
         if points >= 500:
             if st.button("🎁 ڈسکاؤنٹ کلیم کریں"):
@@ -457,7 +498,6 @@ elif menu == "📊 کلکس اینالائٹکس":
     
     st.divider()
     
-    # Show recent clicks
     st.subheader("📋 حالیہ کلکس کی تفصیلات")
     c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id = ? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
     recent_clicks = c.fetchall()
@@ -510,7 +550,6 @@ elif menu == "👑 ایڈمن پینل":
         
         admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
         
-        # Tab 1: Users with search
         with admin_tab[0]:
             search = st.text_input("🔍 نام یا موبائل سے تلاش کریں")
             if search:
@@ -541,7 +580,6 @@ elif menu == "👑 ایڈمن پینل":
                         st.rerun()
                 st.divider()
         
-        # Tab 2: Export Data
         with admin_tab[1]:
             st.subheader("📥 ڈیٹا ایکسپورٹ")
             c.execute("SELECT id, name, mobile, referral_code, points, referred_by, join_date FROM users")
@@ -553,7 +591,6 @@ elif menu == "👑 ایڈمن پینل":
             else:
                 st.info("کوئی ڈیٹا نہیں")
         
-        # Tab 3: Bulk Points
         with admin_tab[2]:
             st.subheader("📈 بلک پوائنٹس ایڈ")
             points_to_add = st.number_input("پوائنٹس (تمام صارفین کو)", min_value=0, step=50)
@@ -562,7 +599,6 @@ elif menu == "👑 ایڈمن پینل":
                 conn.commit()
                 st.success(f"تمام صارفین کو {points_to_add} پوائنٹس دیے گئے!")
         
-        # Tab 4: Repair Reports
         with admin_tab[3]:
             st.subheader("🔧 صارفین کی رپورٹ کردہ خرابیاں")
             c.execute("""SELECT u.name, u.mobile, rc.category_name, us.selection_date 
@@ -577,7 +613,6 @@ elif menu == "👑 ایڈمن پینل":
             else:
                 st.info("کوئی رپورٹ نہیں")
         
-        # Tab 5: Click Analytics Report
         with admin_tab[4]:
             st.subheader("📊 تمام صارفین کے کلکس کی رپورٹ")
             c.execute("""SELECT u.name, u.mobile, u.referral_code, 
