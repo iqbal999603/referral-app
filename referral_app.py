@@ -170,7 +170,7 @@ elif menu == "🏠 میرے پوائنٹس":
     if user:
         name, mobile, code, points = user[1], user[2], user[4], user[5]
         discount = points * 0.5
-        referral_link = f"//https://alimobile-referral.streamlit.app/?ref={code}"
+        referral_link = f"https://alimobile-referral.streamlit.app/?ref={code}"
         
         col1, col2 = st.columns(2)
         with col1:
