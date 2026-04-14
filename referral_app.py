@@ -183,7 +183,7 @@ elif menu == "🏠 میرے پوائنٹس":
         st.markdown("---")
         st.markdown(f"### 💰 ڈسکاؤنٹ کی رقم: **{discount:.2f} PKR**")
         
-        st.subheader("📤 اپنا ریفرل لنک")
+        st.subheader("📤 آپکا ریفرل لنک")
         st.code(referral_link, language="text")
         
         if points >= 200:
