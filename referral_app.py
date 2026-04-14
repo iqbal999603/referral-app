@@ -39,18 +39,12 @@ st.markdown("""
         border-radius: 10px;
         margin: 5px 0;
     }
-    .category-btn {
-        background: #f0f2f6;
-        border: none;
-        padding: 10px;
-        margin: 5px;
-        border-radius: 20px;
-        cursor: pointer;
-        transition: 0.3s;
-    }
-    .category-btn:hover {
-        background: #ff9f43;
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 15px;
+        border-radius: 15px;
         color: white;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -109,6 +103,15 @@ def init_db():
                   category_id INTEGER,
                   selection_date TEXT)''')
     
+    # NEW: Referral clicks tracking table
+    c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  referral_code TEXT,
+                  referrer_id INTEGER,
+                  ip_address TEXT,
+                  clicked_at TEXT,
+                  is_converted INTEGER DEFAULT 0)''')
+    
     conn.commit()
     
     # Add default repair categories if empty
@@ -153,6 +156,29 @@ def mark_notification_read(notif_id):
     c.execute("UPDATE notifications SET is_read = 1 WHERE id = ?", (notif_id,))
     conn.commit()
 
+def track_referral_click(referral_code, ip_address):
+    """Track when someone clicks on a referral link"""
+    c.execute("SELECT id FROM users WHERE referral_code = ?", (referral_code,))
+    user = c.fetchone()
+    if user:
+        c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at) VALUES (?,?,?,?)",
+                  (referral_code, user[0], ip_address, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        return True
+    return False
+
+def get_click_stats(user_id):
+    """Get click statistics for a user"""
+    c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id = ?", (user_id,))
+    total_clicks = c.fetchone()[0]
+    
+    c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id = ?", (user_id,))
+    total_conversions = c.fetchone()[0]
+    
+    conversion_rate = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
+    
+    return total_clicks, total_conversions, conversion_rate
+
 # Session state
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -161,6 +187,16 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_name = None
     st.session_state.user_code = None
 
+# ==================== REFERRAL TRACKING ON PAGE LOAD ====================
+# Check if user came via referral link
+query_params = st.query_params
+if 'ref' in query_params:
+    ref_code = query_params['ref']
+    # Get user's IP (simulated - in production use request headers)
+    import hashlib
+    ip_address = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:15]  # Simulated unique ID
+    track_referral_click(ref_code, ip_address)
+
 # ==================== SIDEBAR ====================
 st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=80)
 
@@ -168,8 +204,8 @@ admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", pl
 
 if admin_secret == "Admin@51214725":
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", 
-                                                "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹ्री",
-                                                "🔧 مرمت کی اقسام", "👑 ایڈمن پینل"])
+                                                "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹری",
+                                                "📊 کلکس اینالائٹکس", "🔧 مرمت کی اقسام", "👑 ایڈمن پینل"])
 else:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس",
                                                 "🏆 لیڈر بورڈ", "🔧 مرمت کی اقسام"])
@@ -214,6 +250,9 @@ if menu == "✨ نیا رجسٹریشن":
                         if referrer:
                             referrer_id = referrer[0]
                             c.execute("UPDATE users SET points = points + 50 WHERE referral_code=?", (ref_code,))
+                            conn.commit()
+                            # Mark click as converted
+                            c.execute("UPDATE referral_clicks SET is_converted = 1 WHERE referral_code = ? AND is_converted = 0 ORDER BY clicked_at DESC LIMIT 1", (ref_code,))
                             conn.commit()
                             # Add notification for referrer
                             add_notification(referrer_id, f"🎉 مبارک ہو! {name} نے آپ کے ریفرل کوڈ سے رجسٹر کیا۔ آپ کو 50 پوائنٹس مل گئے۔")
@@ -292,6 +331,19 @@ elif menu == "🏠 میرے پوائنٹس":
             st.metric("🔑 ریفرل کوڈ", code)
             st.metric("⭐ پوائنٹس", points)
         
+        # NEW: Show click statistics
+        total_clicks, total_conversions, conversion_rate = get_click_stats(st.session_state.user_id)
+        
+        st.markdown("---")
+        st.markdown("### 📊 آپ کے ریفرل لنک کی کارکردگی")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("👆 کل کلکس", total_clicks)
+        with col_b:
+            st.metric("✅ رجسٹریشنز", total_conversions)
+        with col_c:
+            st.metric("📈 کنورژن ریٹ", f"{conversion_rate:.1f}%")
+        
         st.markdown("---")
         st.markdown(f"### 💰 ڈسکاؤنٹ کی رقم: **{discount:.2f} PKR**")
         
@@ -304,10 +356,8 @@ elif menu == "🏠 میرے پوائنٹس":
         
         if points >= 500:
             if st.button("🎁 ڈسکاؤنٹ کلیم کریں"):
-                # Add to discount history
                 c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
                           (st.session_state.user_id, points, discount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
-                # Reset points
                 c.execute("UPDATE users SET points = 0 WHERE id=?", (st.session_state.user_id,))
                 conn.commit()
                 st.success(f"🎉 آپ نے {discount:.2f} PKR کا ڈسکاؤنٹ کلیم کر لیا! دکان پر اپنا کوڈ دکھائیں۔")
@@ -387,6 +437,38 @@ elif menu == "💰 ڈسکاؤنٹ ہسٹری":
     else:
         st.info("ابھی تک کوئی ڈسکاؤنٹ کلیم نہیں کیا۔")
 
+# ==================== CLICK ANALYTICS ====================
+elif menu == "📊 کلکس اینالائٹکس":
+    if not st.session_state.logged_in:
+        st.warning("براہ کرم پہلے لاگ ان کریں۔")
+        st.stop()
+    
+    st.subheader("📊 آپ کے ریفرل لنک کی تفصیلی رپورٹ")
+    
+    total_clicks, total_conversions, conversion_rate = get_click_stats(st.session_state.user_id)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("👆 کل کلکس", total_clicks)
+    with col2:
+        st.metric("✅ کامیاب رجسٹریشنز", total_conversions)
+    with col3:
+        st.metric("📈 کنورژن ریٹ", f"{conversion_rate:.1f}%")
+    
+    st.divider()
+    
+    # Show recent clicks
+    st.subheader("📋 حالیہ کلکس کی تفصیلات")
+    c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id = ? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
+    recent_clicks = c.fetchall()
+    
+    if recent_clicks:
+        for click in recent_clicks:
+            status = "✅ تبدیل ہوا" if click[1] == 1 else "⏳ زیر التواء"
+            st.write(f"📅 {click[0][:16]} → {status}")
+    else:
+        st.info("ابھی تک کسی نے آپ کے لنک پر کلک نہیں کیا۔")
+
 # ==================== REPAIR CATEGORIES ====================
 elif menu == "🔧 مرمت کی اقسام":
     st.subheader("🔧 موبائل کی عام خرابیاں")
@@ -426,7 +508,7 @@ elif menu == "👑 ایڈمن پینل":
     if admin_pass == "Admin51214725":
         st.success("ایڈمن پینل میں خوش آمدید")
         
-        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس"])
+        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
         
         # Tab 1: Users with search
         with admin_tab[0]:
@@ -494,6 +576,24 @@ elif menu == "👑 ایڈمن پینل":
                     st.write(f"📱 {r[0]} ({r[1]}) → {r[2]} - {r[3][:10]}")
             else:
                 st.info("کوئی رپورٹ نہیں")
+        
+        # Tab 5: Click Analytics Report
+        with admin_tab[4]:
+            st.subheader("📊 تمام صارفین کے کلکس کی رپورٹ")
+            c.execute("""SELECT u.name, u.mobile, u.referral_code, 
+                                COUNT(rc.id) as total_clicks,
+                                SUM(CASE WHEN rc.is_converted = 1 THEN 1 ELSE 0 END) as conversions
+                         FROM users u
+                         LEFT JOIN referral_clicks rc ON u.id = rc.referrer_id
+                         GROUP BY u.id
+                         ORDER BY total_clicks DESC""")
+            click_data = c.fetchall()
+            if click_data:
+                for cd in click_data:
+                    conv_rate = (cd[4] / cd[3] * 100) if cd[3] > 0 else 0
+                    st.write(f"📱 {cd[0]} ({cd[1]}) → کلکس: {cd[3]} | رجسٹر: {cd[4]} | شرح: {conv_rate:.1f}%")
+            else:
+                st.info("کوئی کلکس ڈیٹا نہیں")
     
     elif admin_pass:
         st.error("غلط پاس ورڈ۔")
