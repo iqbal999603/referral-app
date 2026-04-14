@@ -633,41 +633,6 @@ elif menu == "🎲 لکی ڈرا":
     else:
         st.info("پچھلے مہینے کے فاتحین جلد اعلان کیے جائیں گے۔")
 
-# ==================== REPAIR CATEGORIES (EXPANDED) ====================
-elif menu == "🔧 مرمت کی اقسام":
-    st.subheader("🔧 موبائل کی عام خرابیاں")
-    
-    c.execute("SELECT id, category_name, description, solution FROM repair_categories")
-    categories = c.fetchall()
-    
-    search = st.text_input("🔍 خرابی تلاش کریں")
-    filtered_cats = [cat for cat in categories if search.lower() in cat[1].lower()] if search else categories
-    
-    for cat in filtered_cats[:10]:
-        with st.expander(f"🔧 {cat[1]}"):
-            st.write(f"**تفصیل:** {cat[2]}")
-            st.write(f"**حل:** {cat[3]}")
-            if st.session_state.logged_in:
-                if st.button(f"یہ مسئلہ ہے", key=f"cat_{cat[0]}"):
-                    c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
-                              (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-                    st.success(f"آپ نے '{cat[1]}' کا مسئلہ رپورٹ کر دیا۔ ہم جلد رابطہ کریں گے۔")
-    
-    if st.session_state.logged_in:
-        st.divider()
-        st.subheader("آپ کی رپورٹ کردہ خرابیاں")
-        c.execute("""SELECT rc.category_name, us.selection_date 
-                     FROM user_repair_selections us 
-                     JOIN repair_categories rc ON us.category_id = rc.id 
-                     WHERE us.user_id = ? 
-                     ORDER BY us.selection_date DESC LIMIT 5""", (st.session_state.user_id,))
-        user_issues = c.fetchall()
-        if user_issues:
-            for issue in user_issues:
-                st.write(f"📌 {issue[1][:10]} کو: {issue[0]}")
-        else:
-            st.info("آپ نے ابھی تک کوئی خرابی رپورٹ نہیں کی۔")
 
 # ==================== REFERRAL HISTORY ====================
 elif menu == "📜 ریفرل ہسٹری":
