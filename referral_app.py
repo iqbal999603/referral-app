@@ -7,6 +7,17 @@ from datetime import datetime
 import pandas as pd
 import urllib.parse
 
+# ========== GET SECRETS FROM STREAMLIT CLOUD ==========
+# یہ پاس ورڈز Streamlit Cloud کی Secrets سے آئیں گے
+# اگر Secrets میں نہیں ہیں تو Default values استعمال ہوں گی (صرف ٹیسٹنگ کے لیے)
+try:
+    ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
+    ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+except:
+    # Default values for local testing (will not be visible on GitHub if you use .gitignore)
+    ADMIN_SECRET = "Admin@51214725"
+    ADMIN_PASSWORD = "Admin51214725"
+
 # Page setup
 st.set_page_config(page_title="Ali Mobile Repair - ریفرل سسٹم", page_icon="📱", layout="centered")
 
@@ -232,6 +243,7 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 
 admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="ایڈمن کوڈ")
 
+# Using secret from Streamlit Cloud
 if admin_secret == ADMIN_SECRET:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", 
                                                 "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹری",
@@ -374,7 +386,7 @@ elif menu == "🏠 میرے پوائنٹس":
         st.subheader("📤 آپکا ریفرل لنک")
         st.code(referral_link, language="text")
         
-        # ========== NEW: SOCIAL MEDIA SHARING SECTION ==========
+        # ========== SOCIAL MEDIA SHARING SECTION ==========
         st.markdown("### 🌐 سوشل میڈیا پر شیئر کریں")
         
         social_urls = get_social_share_urls(referral_link, code, name)
@@ -545,6 +557,7 @@ elif menu == "🔧 مرمت کی اقسام":
 elif menu == "👑 ایڈمن پینل":
     admin_pass = st.text_input("ایڈمن پاس ورڈ", type="password")
     
+    # Using secret from Streamlit Cloud
     if admin_pass == ADMIN_PASSWORD:
         st.success("ایڈمن پینل میں خوش آمدید")
         
