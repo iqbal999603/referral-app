@@ -6,6 +6,7 @@ import string
 from datetime import datetime
 import pandas as pd
 import urllib.parse
+import requests
 
 # ========== GET SECRETS FROM STREAMLIT CLOUD ==========
 try:
@@ -51,7 +52,13 @@ st.markdown("""
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
     .copy-btn { background: #6c757d; }
-    .upload-success { background: #d4edda; color: #155724; padding: 10px; border-radius: 10px; }
+    .referral-history-item {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 10px;
+        border-radius: 10px;
+        margin: 5px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,6 +67,7 @@ def init_db():
     conn = sqlite3.connect('referral.db', check_same_thread=False)
     c = conn.cursor()
     
+    # Users table
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT,
@@ -70,6 +78,7 @@ def init_db():
                   referred_by TEXT,
                   join_date TEXT)''')
     
+    # Referral history table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER,
@@ -77,6 +86,7 @@ def init_db():
                   points_earned INTEGER,
                   referral_date TEXT)''')
     
+    # Discount claim history table
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
@@ -85,6 +95,7 @@ def init_db():
                   claim_date TEXT,
                   status TEXT)''')
     
+    # Notifications table
     c.execute('''CREATE TABLE IF NOT EXISTS notifications
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
@@ -92,17 +103,20 @@ def init_db():
                   is_read INTEGER DEFAULT 0,
                   created_at TEXT)''')
     
+    # Repair categories table
     c.execute('''CREATE TABLE IF NOT EXISTS repair_categories
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   category_name TEXT,
                   description TEXT)''')
     
+    # User repair selections table
     c.execute('''CREATE TABLE IF NOT EXISTS user_repair_selections
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
                   category_id INTEGER,
                   selection_date TEXT)''')
     
+    # Referral clicks tracking table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referral_code TEXT,
@@ -111,8 +125,16 @@ def init_db():
                   clicked_at TEXT,
                   is_converted INTEGER DEFAULT 0)''')
     
+    # NEW: Device tracking table (ایک ڈیوائس سے ایک اکاؤنٹ)
+    c.execute('''CREATE TABLE IF NOT EXISTS device_tracking
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  ip_address TEXT,
+                  user_id INTEGER,
+                  created_at TEXT)''')
+    
     conn.commit()
     
+    # Add default repair categories if empty
     c.execute("SELECT COUNT(*) FROM repair_categories")
     if c.fetchone()[0] == 0:
         categories = [
@@ -183,6 +205,14 @@ def get_social_share_urls(referral_link, referral_code, user_name):
     }
     return urls
 
+def get_user_ip():
+    """صارف کا اصلی IP Address حاصل کریں"""
+    try:
+        ip = requests.get('https://api.ipify.org', timeout=5).text
+        return ip
+    except:
+        return "127.0.0.1"
+
 # Session state
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -215,10 +245,22 @@ else:
 # Header
 st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing</h1><p>Ali Laal Road Layyah | 03006762827</p><p>ریفرل کرو، موبائل ریپئرنگ ڈسکاؤنٹ پاؤ</p></div>', unsafe_allow_html=True)
 
-# ==================== REGISTRATION ====================
+# ==================== REGISTRATION (WITH DEVICE TRACKING) ====================
 if menu == "✨ نیا رجسٹریشن":
     if st.session_state.logged_in:
         st.success(f"آپ پہلے سے لاگ ان ہیں۔")
+        st.stop()
+    
+    # === IP Address کے ذریعے ڈیوائس چیک ===
+    user_ip = get_user_ip()
+    
+    # چیک کریں کہ اس IP سے پہلے اکاؤنٹ بن چکا ہے یا نہیں
+    c.execute("SELECT id, user_id FROM device_tracking WHERE ip_address = ?", (user_ip,))
+    existing_device = c.fetchone()
+    
+    if existing_device:
+        st.error("❌ اس ڈیوائس سے پہلے ہی ایک اکاؤنٹ بن چکا ہے!")
+        st.info("ہر ڈیوائس/پی سی/موبائل سے صرف ایک اکاؤنٹ بنایا جا سکتا ہے۔")
         st.stop()
     
     with st.form("register_form"):
@@ -244,6 +286,7 @@ if menu == "✨ نیا رجسٹریشن":
                     new_code = generate_code()
                     hashed_pass = hash_password(password)
                     
+                    # Process referral
                     referrer_id = None
                     if ref_code:
                         c.execute("SELECT id, points, name FROM users WHERE referral_code=?", (ref_code,))
@@ -263,6 +306,11 @@ if menu == "✨ نیا رجسٹریشن":
                     c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by, join_date) VALUES (?,?,?,?,?,?,?)",
                               (name, mobile, hashed_pass, new_code, 0, ref_code if ref_code else None, join_date))
                     user_id = c.lastrowid
+                    conn.commit()
+                    
+                    # === IP Address کو ریکارڈ کریں (Device Tracking) ===
+                    c.execute("INSERT INTO device_tracking (ip_address, user_id, created_at) VALUES (?,?,?)",
+                              (user_ip, user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
                     
                     if referrer_id:
@@ -406,7 +454,7 @@ elif menu == "🏆 لیڈر بورڈ":
     else:
         st.info("ابھی کوئی صارف نہیں۔")
 
-# ==================== REFERRAL HISTORY ====================
+# ==================== REFERRAL HISTORY (NEW COLOR) ====================
 elif menu == "📜 ریفرل ہسٹری":
     if not st.session_state.logged_in:
         st.warning("براہ کرم پہلے لاگ ان کریں۔")
@@ -422,9 +470,9 @@ elif menu == "📜 ریفرل ہسٹری":
     
     if history:
         for h in history:
-            st.markdown(f'<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; border-radius: 10px; margin: 5px 0;">✅ {h[3][:10]} کو {h[1]} نے رجسٹر کیا → +{h[2]} پوائنٹس</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="referral-history-item">✅ {h[3][:10]} کو {h[1]} نے رجسٹر کیا → +{h[2]} پوائنٹس</div>', unsafe_allow_html=True)
     else:
-        st.info("ابھی تک کوئی ریفرل نہیں۔")
+        st.info("ابھی تک کوئی ریفرل نہیں۔ اپنا ریفرل لنک دوستوں کو بھیجیں!")
 
 # ==================== DISCOUNT HISTORY ====================
 elif menu == "💰 ڈسکاؤنٹ ہسٹری":
@@ -438,8 +486,8 @@ elif menu == "💰 ڈسکاؤنٹ ہسٹری":
     
     if history:
         for h in history:
-            st.markdown(f'<div style="background:#e7f3ff; border-left: 5px solid #007cba; color:#333; padding:10px; border-radius:10px; margin:5px 0;">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)
-    else:     
+            st.markdown(f'<div class="notification">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)
+    else:
         st.info("ابھی تک کوئی ڈسکاؤنٹ کلیم نہیں کیا۔")
 
 # ==================== CLICK ANALYTICS ====================
@@ -509,8 +557,7 @@ elif menu == "👑 ایڈمن پینل":
     if admin_pass == ADMIN_PASSWORD:
         st.success("ایڈمن پینل میں خوش آمدید")
         
-        # 6 ٹیبز (نیا CSV اپ لوڈ ٹیب شامل)
-        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📤 CSV اپ لوڈ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
+        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📤 CSV اپ لوڈ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ", "📱 ڈیوائس ٹریکنگ"])
         
         # Tab 0: Users
         with admin_tab[0]:
@@ -558,7 +605,7 @@ elif menu == "👑 ایڈمن پینل":
             else:
                 st.info("کوئی ڈیٹا نہیں")
         
-        # Tab 2: CSV Upload (نیا فیچر)
+        # Tab 2: CSV Upload
         with admin_tab[2]:
             st.subheader("📤 پرانی CSV فائل اپ لوڈ کریں (ڈیٹا ضم کرنے کے لیے)")
             st.warning("⚠️ نوٹ: یہ موجودہ ڈیٹا کو ڈیلیٹ نہیں کرے گا، صرف نئے صارفین شامل کرے گا۔")
@@ -576,39 +623,39 @@ elif menu == "👑 ایڈمن پینل":
                         duplicate_skipped = 0
                         
                         for _, row in df_upload.iterrows():
-                            # چیک کریں کہ یہ موبائل پہلے سے موجود ہے یا نہیں
                             mobile = str(row["موبائل"]) if "موبائل" in row else str(row.get("mobile", ""))
-                            if mobile:
-                                c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
-                                if not c.fetchone():
-                                    # نیا صارف شامل کریں
-                                    name = row["نام"] if "نام" in row else row.get("name", "")
-                                    referral_code = row["ریفرل کوڈ"] if "ریفرل کوڈ" in row else generate_code()
-                                    points = int(row["پوائنٹس"]) if "پوائنٹس" in row else 0
-                                    referred_by = row["ریفرڈ بذریعہ"] if "ریفرڈ بذریعہ" in row else None
-                                    
-                                    # پاس ورڈ (اگر نہیں ہے تو ڈیفالٹ)
-                                    if "پاس ورڈ" in row:
-                                        hashed_pass = hash_password(str(row["پاس ورڈ"]))
-                                    else:
-                                        hashed_pass = hash_password("123456")
-                                    
-                                    c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by, join_date) VALUES (?,?,?,?,?,?,?)",
-                                              (name, mobile, hashed_pass, referral_code, points, referred_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                                    new_users_added += 1
+                            if not mobile:
+                                continue
+                            
+                            c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
+                            if not c.fetchone():
+                                new_referral_code = generate_code()
+                                name = row["نام"] if "نام" in row else row.get("name", "")
+                                points = int(row["پوائنٹس"]) if "پوائنٹس" in row else 0
+                                referred_by = row["ریفرڈ بذریعہ"] if "ریفرڈ بذریعہ" in row else None
+                                
+                                if "پاس ورڈ" in row:
+                                    hashed_pass = hash_password(str(row["پاس ورڈ"]))
                                 else:
+                                    hashed_pass = hash_password("123456")
+                                
+                                try:
+                                    c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by, join_date) VALUES (?,?,?,?,?,?,?)",
+                                              (name, mobile, hashed_pass, new_referral_code, points, referred_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                    new_users_added += 1
+                                except sqlite3.IntegrityError:
                                     duplicate_skipped += 1
+                            else:
+                                duplicate_skipped += 1
                         
                         conn.commit()
                         st.success(f"✅ {new_users_added} نئے صارفین شامل کر دیے گئے۔")
                         if duplicate_skipped > 0:
-                            st.info(f"⚠️ {duplicate_skipped} ڈپلیکیٹ صارفین (موبائل نمبر پہلے سے موجود) کو چھوڑ دیا گیا۔")
-                        
+                            st.info(f"⚠️ {duplicate_skipped} ڈپلیکیٹ صارفین کو چھوڑ دیا گیا۔")
                         st.rerun()
                         
                 except Exception as e:
                     st.error(f"فائل پڑھنے میں خرابی: {str(e)}")
-                    st.info("یقینی بنائیں کہ CSV فائل صحیح فارمیٹ میں ہے (پہلے سے ڈاؤن لوڈ کردہ فائل استعمال کریں)")
         
         # Tab 3: Bulk Points
         with admin_tab[3]:
@@ -651,6 +698,23 @@ elif menu == "👑 ایڈمن پینل":
                     st.write(f"📱 {cd[0]} ({cd[1]}) → کلکس: {cd[3]} | رجسٹر: {cd[4]} | شرح: {conv_rate:.1f}%")
             else:
                 st.info("کوئی کلکس ڈیٹا نہیں")
+        
+        # Tab 6: Device Tracking (نیا)
+        with admin_tab[6]:
+            st.subheader("📱 ڈیوائس ٹریکنگ رپورٹ")
+            st.info("یہاں وہ تمام IP ایڈریس ہیں جن سے اکاؤنٹ بنائے گئے ہیں۔")
+            
+            c.execute("""SELECT dt.ip_address, u.name, u.mobile, dt.created_at 
+                         FROM device_tracking dt 
+                         JOIN users u ON dt.user_id = u.id 
+                         ORDER BY dt.created_at DESC""")
+            devices = c.fetchall()
+            if devices:
+                for d in devices:
+                    st.write(f"🌐 IP: {d[0]} | 👤 {d[1]} ({d[2]}) | 📅 {d[3][:16]}")
+                st.info(f"📊 کل ڈیوائسز: {len(devices)}")
+            else:
+                st.info("کوئی ڈیوائس ٹریک نہیں۔")
     
     elif admin_pass:
         st.error("غلط پاس ورڈ۔")
