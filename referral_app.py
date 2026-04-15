@@ -8,13 +8,10 @@ import pandas as pd
 import urllib.parse
 
 # ========== GET SECRETS FROM STREAMLIT CLOUD ==========
-# یہ پاس ورڈز Streamlit Cloud کی Secrets سے آئیں گے
-# اگر Secrets میں نہیں ہیں تو Default values استعمال ہوں گی (صرف ٹیسٹنگ کے لیے)
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except:
-    # Default values for local testing (will not be visible on GitHub if you use .gitignore)
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
@@ -32,31 +29,11 @@ st.markdown("""
         color: white;
         margin-bottom: 30px;
     }
-    .card {
-        background: white;
-        padding: 25px;
-        border-radius: 15px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    }
-    .leaderboard-card {
-        background: linear-gradient(135deg, #ff9f43 0%, #ff6b6b 100%);
-        padding: 15px;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-    }
     .notification {
         background: #e7f3ff;
         padding: 10px;
         border-radius: 10px;
         margin: 5px 0;
-    }
-    .stat-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 15px;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
     }
     .social-share-btn {
         display: inline-block;
@@ -69,16 +46,12 @@ st.markdown("""
         transition: 0.3s;
         text-align: center;
     }
-    .social-share-btn:hover {
-        transform: scale(1.05);
-        opacity: 0.9;
-    }
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
-    .instagram { background: linear-gradient(45deg, #f09433, #d62976, #962fbf); }
     .telegram { background: #0088cc; }
     .copy-btn { background: #6c757d; }
+    .upload-success { background: #d4edda; color: #155724; padding: 10px; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -87,7 +60,6 @@ def init_db():
     conn = sqlite3.connect('referral.db', check_same_thread=False)
     c = conn.cursor()
     
-    # Users table
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT,
@@ -98,7 +70,6 @@ def init_db():
                   referred_by TEXT,
                   join_date TEXT)''')
     
-    # Referral history table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER,
@@ -106,7 +77,6 @@ def init_db():
                   points_earned INTEGER,
                   referral_date TEXT)''')
     
-    # Discount claim history table
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
@@ -115,7 +85,6 @@ def init_db():
                   claim_date TEXT,
                   status TEXT)''')
     
-    # Notifications table
     c.execute('''CREATE TABLE IF NOT EXISTS notifications
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
@@ -123,20 +92,17 @@ def init_db():
                   is_read INTEGER DEFAULT 0,
                   created_at TEXT)''')
     
-    # Repair categories table
     c.execute('''CREATE TABLE IF NOT EXISTS repair_categories
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   category_name TEXT,
                   description TEXT)''')
     
-    # User repair selections table
     c.execute('''CREATE TABLE IF NOT EXISTS user_repair_selections
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
                   category_id INTEGER,
                   selection_date TEXT)''')
     
-    # Referral clicks tracking table
     c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referral_code TEXT,
@@ -147,7 +113,6 @@ def init_db():
     
     conn.commit()
     
-    # Add default repair categories if empty
     c.execute("SELECT COUNT(*) FROM repair_categories")
     if c.fetchone()[0] == 0:
         categories = [
@@ -208,17 +173,13 @@ def get_click_stats(user_id):
     return total_clicks, total_conversions, conversion_rate
 
 def get_social_share_urls(referral_link, referral_code, user_name):
-    """Generate social media share URLs"""
     message = f"📱 Ali Mobile Repair - ریفرل پروگرام!\n\nمیرا ریفرل کوڈ: {referral_code}\nرجسٹر کرنے کے لیے لنک پر کلک کریں:\n{referral_link}\n\nہر ریفرل پر 50 پوائنٹس! 500 پوائنٹس = 250 PKR ڈسکاؤنٹ!"
-    
     encoded_msg = urllib.parse.quote(message)
-    
     urls = {
         "whatsapp": f"https://wa.me/?text={encoded_msg}",
         "facebook": f"https://www.facebook.com/sharer/sharer.php?u={urllib.parse.quote(referral_link)}&quote={encoded_msg}",
         "twitter": f"https://twitter.com/intent/tweet?text={encoded_msg}&url={urllib.parse.quote(referral_link)}",
         "telegram": f"https://t.me/share/url?url={urllib.parse.quote(referral_link)}&text={encoded_msg}",
-        "instagram": f"instagram://library?AssetPath={urllib.parse.quote(referral_link)}"
     }
     return urls
 
@@ -230,7 +191,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_name = None
     st.session_state.user_code = None
 
-# ==================== REFERRAL TRACKING ON PAGE LOAD ====================
+# ==================== REFERRAL TRACKING ====================
 query_params = st.query_params
 if 'ref' in query_params:
     ref_code = query_params['ref']
@@ -243,7 +204,6 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 
 admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="ایڈمن کوڈ")
 
-# Using secret from Streamlit Cloud
 if admin_secret == ADMIN_SECRET:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", 
                                                 "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹری",
@@ -284,7 +244,6 @@ if menu == "✨ نیا رجسٹریشن":
                     new_code = generate_code()
                     hashed_pass = hash_password(password)
                     
-                    # Process referral
                     referrer_id = None
                     if ref_code:
                         c.execute("SELECT id, points, name FROM users WHERE referral_code=?", (ref_code,))
@@ -386,12 +345,9 @@ elif menu == "🏠 میرے پوائنٹس":
         st.subheader("📤 آپکا ریفرل لنک")
         st.code(referral_link, language="text")
         
-        # ========== SOCIAL MEDIA SHARING SECTION ==========
         st.markdown("### 🌐 سوشل میڈیا پر شیئر کریں")
-        
         social_urls = get_social_share_urls(referral_link, code, name)
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.markdown(f'<a href="{social_urls["whatsapp"]}" target="_blank" class="social-share-btn whatsapp" style="display:block;">📱 واٹس ایپ</a>', unsafe_allow_html=True)
         with col2:
@@ -400,10 +356,6 @@ elif menu == "🏠 میرے پوائنٹس":
             st.markdown(f'<a href="{social_urls["twitter"]}" target="_blank" class="social-share-btn twitter" style="display:block;">🐦 ٹویٹر</a>', unsafe_allow_html=True)
         with col4:
             st.markdown(f'<a href="{social_urls["telegram"]}" target="_blank" class="social-share-btn telegram" style="display:block;">📨 ٹیلی گرام</a>', unsafe_allow_html=True)
-        with col5:
-            st.markdown(f'<button onclick="navigator.clipboard.writeText(\'{referral_link}\')" class="social-share-btn copy-btn" style="border:none; cursor:pointer;">📋 کاپی لنک</button>', unsafe_allow_html=True)
-        
-        st.caption("💡 انسٹاگرام پر لنک کاپی کر کے بائیو میں لگائیں یا دوستوں کو بھیجیں۔")
         
         st.markdown("---")
         
@@ -413,7 +365,7 @@ elif menu == "🏠 میرے پوائنٹس":
                           (st.session_state.user_id, points, discount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
                 c.execute("UPDATE users SET points = 0 WHERE id=?", (st.session_state.user_id,))
                 conn.commit()
-                st.success(f"🎉 آپ نے {discount:.2f} PKR کا ڈسکاؤنٹ کلیم کر لیا! دکان پر اپنا کوڈ دکھائیں۔")
+                st.success(f"🎉 آپ نے {discount:.2f} PKR کا ڈسکاؤنٹ کلیم کر لیا!")
                 st.rerun()
         else:
             need = 500 - points
@@ -472,7 +424,7 @@ elif menu == "📜 ریفرل ہسٹری":
         for h in history:
             st.markdown(f'<div class="notification">✅ {h[3][:10]} کو {h[1]} نے رجسٹر کیا → +{h[2]} پوائنٹس</div>', unsafe_allow_html=True)
     else:
-        st.info("ابھی تک کوئی ریفرل نہیں۔ اپنا ریفرل لنک دوستوں کو بھیجیں!")
+        st.info("ابھی تک کوئی ریفرل نہیں۔")
 
 # ==================== DISCOUNT HISTORY ====================
 elif menu == "💰 ڈسکاؤنٹ ہسٹری":
@@ -497,7 +449,6 @@ elif menu == "📊 کلکس اینالائٹکس":
         st.stop()
     
     st.subheader("📊 آپ کے ریفرل لنک کی تفصیلی رپورٹ")
-    
     total_clicks, total_conversions, conversion_rate = get_click_stats(st.session_state.user_id)
     
     col1, col2, col3 = st.columns(3)
@@ -509,7 +460,6 @@ elif menu == "📊 کلکس اینالائٹکس":
         st.metric("📈 کنورژن ریٹ", f"{conversion_rate:.1f}%")
     
     st.divider()
-    
     st.subheader("📋 حالیہ کلکس کی تفصیلات")
     c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id = ? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
     recent_clicks = c.fetchall()
@@ -524,7 +474,6 @@ elif menu == "📊 کلکس اینالائٹکس":
 # ==================== REPAIR CATEGORIES ====================
 elif menu == "🔧 مرمت کی اقسام":
     st.subheader("🔧 موبائل کی عام خرابیاں")
-    
     c.execute("SELECT id, category_name, description FROM repair_categories")
     categories = c.fetchall()
     
@@ -536,7 +485,7 @@ elif menu == "🔧 مرمت کی اقسام":
                     c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
                               (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
-                    st.success(f"آپ نے '{cat[1]}' کا مسئلہ رپورٹ کر دیا۔ ہم جلد رابطہ کریں گے۔")
+                    st.success(f"آپ نے '{cat[1]}' کا مسئلہ رپورٹ کر دیا۔")
     
     if st.session_state.logged_in:
         st.divider()
@@ -557,12 +506,13 @@ elif menu == "🔧 مرمت کی اقسام":
 elif menu == "👑 ایڈمن پینل":
     admin_pass = st.text_input("ایڈمن پاس ورڈ", type="password")
     
-    # Using secret from Streamlit Cloud
     if admin_pass == ADMIN_PASSWORD:
         st.success("ایڈمن پینل میں خوش آمدید")
         
-        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
+        # 6 ٹیبز (نیا CSV اپ لوڈ ٹیب شامل)
+        admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📤 CSV اپ لوڈ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
         
+        # Tab 0: Users
         with admin_tab[0]:
             search = st.text_input("🔍 نام یا موبائل سے تلاش کریں")
             if search:
@@ -573,7 +523,7 @@ elif menu == "👑 ایڈمن پینل":
             users = c.fetchall()
             
             for user in users:
-                col1, col2, col3, col4, col5 = st.columns([1,2,2,1,2])
+                col1, col2, col3, col4, col5, col6 = st.columns([1,2,2,1,1,2])
                 with col1:
                     st.write(user[0])
                 with col2:
@@ -581,8 +531,10 @@ elif menu == "👑 ایڈمن پینل":
                 with col3:
                     st.write(user[2])
                 with col4:
-                    st.write(f"⭐ {user[4]}")
+                    st.write(user[3])
                 with col5:
+                    st.write(f"⭐ {user[4]}")
+                with col6:
                     deduct = st.number_input("کم کریں", min_value=0, max_value=user[4], step=50, key=f"deduct_{user[0]}")
                     if st.button("کم کریں", key=f"btn_{user[0]}"):
                         new_points = user[4] - deduct
@@ -593,6 +545,7 @@ elif menu == "👑 ایڈمن پینل":
                         st.rerun()
                 st.divider()
         
+        # Tab 1: Export Data
         with admin_tab[1]:
             st.subheader("📥 ڈیٹا ایکسپورٹ")
             c.execute("SELECT id, name, mobile, referral_code, points, referred_by, join_date FROM users")
@@ -600,11 +553,65 @@ elif menu == "👑 ایڈمن پینل":
             if data:
                 df = pd.DataFrame(data, columns=["ID", "نام", "موبائل", "ریفرل کوڈ", "پوائنٹس", "ریفرڈ بذریعہ", "تاریخ"])
                 csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 CSV ڈاؤن لوڈ کریں", csv, "users_data.csv", "text/csv")
+                st.download_button("📥 CSV ڈاؤن لوڈ کریں", csv, f"users_data_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+                st.info(f"📊 کل صارفین: {len(data)}")
             else:
                 st.info("کوئی ڈیٹا نہیں")
         
+        # Tab 2: CSV Upload (نیا فیچر)
         with admin_tab[2]:
+            st.subheader("📤 پرانی CSV فائل اپ لوڈ کریں (ڈیٹا ضم کرنے کے لیے)")
+            st.warning("⚠️ نوٹ: یہ موجودہ ڈیٹا کو ڈیلیٹ نہیں کرے گا، صرف نئے صارفین شامل کرے گا۔")
+            
+            uploaded_file = st.file_uploader("پہلے سے ڈاؤن لوڈ کردہ CSV فائل منتخب کریں", type=["csv"])
+            
+            if uploaded_file is not None:
+                try:
+                    df_upload = pd.read_csv(uploaded_file)
+                    st.write("اپ لوڈ کردہ ڈیٹا کا نمونہ:", df_upload.head())
+                    st.write(f"کل ریکارڈز: {len(df_upload)}")
+                    
+                    if st.button("🔄 ڈیٹا ضم کریں (Merge Data)"):
+                        new_users_added = 0
+                        duplicate_skipped = 0
+                        
+                        for _, row in df_upload.iterrows():
+                            # چیک کریں کہ یہ موبائل پہلے سے موجود ہے یا نہیں
+                            mobile = str(row["موبائل"]) if "موبائل" in row else str(row.get("mobile", ""))
+                            if mobile:
+                                c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
+                                if not c.fetchone():
+                                    # نیا صارف شامل کریں
+                                    name = row["نام"] if "نام" in row else row.get("name", "")
+                                    referral_code = row["ریفرل کوڈ"] if "ریفرل کوڈ" in row else generate_code()
+                                    points = int(row["پوائنٹس"]) if "پوائنٹس" in row else 0
+                                    referred_by = row["ریفرڈ بذریعہ"] if "ریفرڈ بذریعہ" in row else None
+                                    
+                                    # پاس ورڈ (اگر نہیں ہے تو ڈیفالٹ)
+                                    if "پاس ورڈ" in row:
+                                        hashed_pass = hash_password(str(row["پاس ورڈ"]))
+                                    else:
+                                        hashed_pass = hash_password("123456")
+                                    
+                                    c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by, join_date) VALUES (?,?,?,?,?,?,?)",
+                                              (name, mobile, hashed_pass, referral_code, points, referred_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                    new_users_added += 1
+                                else:
+                                    duplicate_skipped += 1
+                        
+                        conn.commit()
+                        st.success(f"✅ {new_users_added} نئے صارفین شامل کر دیے گئے۔")
+                        if duplicate_skipped > 0:
+                            st.info(f"⚠️ {duplicate_skipped} ڈپلیکیٹ صارفین (موبائل نمبر پہلے سے موجود) کو چھوڑ دیا گیا۔")
+                        
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"فائل پڑھنے میں خرابی: {str(e)}")
+                    st.info("یقینی بنائیں کہ CSV فائل صحیح فارمیٹ میں ہے (پہلے سے ڈاؤن لوڈ کردہ فائل استعمال کریں)")
+        
+        # Tab 3: Bulk Points
+        with admin_tab[3]:
             st.subheader("📈 بلک پوائنٹس ایڈ")
             points_to_add = st.number_input("پوائنٹس (تمام صارفین کو)", min_value=0, step=50)
             if st.button("سب کو پوائنٹس دیں"):
@@ -612,7 +619,8 @@ elif menu == "👑 ایڈمن پینل":
                 conn.commit()
                 st.success(f"تمام صارفین کو {points_to_add} پوائنٹس دیے گئے!")
         
-        with admin_tab[3]:
+        # Tab 4: Repair Reports
+        with admin_tab[4]:
             st.subheader("🔧 صارفین کی رپورٹ کردہ خرابیاں")
             c.execute("""SELECT u.name, u.mobile, rc.category_name, us.selection_date 
                          FROM user_repair_selections us 
@@ -626,7 +634,8 @@ elif menu == "👑 ایڈمن پینل":
             else:
                 st.info("کوئی رپورٹ نہیں")
         
-        with admin_tab[4]:
+        # Tab 5: Click Report
+        with admin_tab[5]:
             st.subheader("📊 تمام صارفین کے کلکس کی رپورٹ")
             c.execute("""SELECT u.name, u.mobile, u.referral_code, 
                                 COUNT(rc.id) as total_clicks,
