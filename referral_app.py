@@ -422,7 +422,7 @@ elif menu == "📜 ریفرل ہسٹری":
     
     if history:
         for h in history:
-            st.markdown(f'<div class="notification">✅ {h[3][:10]} کو {h[1]} نے رجسٹر کیا → +{h[2]} پوائنٹس</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; border-radius: 10px; margin: 5px 0;">✅ {h[3][:10]} کو {h[1]} نے رجسٹر کیا → +{h[2]} پوائنٹس</div>', unsafe_allow_html=True)
     else:
         st.info("ابھی تک کوئی ریفرل نہیں۔")
 
