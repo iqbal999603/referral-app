@@ -438,7 +438,8 @@ elif menu == "💰 ڈسکاؤنٹ ہسٹری":
     
     if history:
         for h in history:
-            st.markdown(f'<div style="background:#e7f3ff; border-left: 5px solid #007cba; color:#333; padding:10px; border-radius:10px; margin:5px 0;">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)     
+            st.markdown(f'<div style="background:#e7f3ff; border-left: 5px solid #007cba; color:#333; padding:10px; border-radius:10px; margin:5px 0;">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)
+    else:     
         st.info("ابھی تک کوئی ڈسکاؤنٹ کلیم نہیں کیا۔")
 
 # ==================== CLICK ANALYTICS ====================
