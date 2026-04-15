@@ -232,7 +232,7 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 
 admin_secret = st.sidebar.text_input("🔑 خفیہ کوڈ", type="password", placeholder="ایڈمن کوڈ")
 
-if admin_secret == "Admin@51214725":
+if admin_secret == ADMIN_SECRET:
     menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", 
                                                 "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹری",
                                                 "📊 کلکس اینالائٹکس", "🔧 مرمت کی اقسام", "👑 ایڈمن پینل"])
@@ -545,7 +545,7 @@ elif menu == "🔧 مرمت کی اقسام":
 elif menu == "👑 ایڈمن پینل":
     admin_pass = st.text_input("ایڈمن پاس ورڈ", type="password")
     
-    if admin_pass == "Admin51214725":
+    if admin_pass == ADMIN_PASSWORD:
         st.success("ایڈمن پینل میں خوش آمدید")
         
         admin_tab = st.tabs(["📊 صارفین", "📥 ڈیٹا ایکسپورٹ", "📈 بلک پوائنٹس", "🔧 خرابی کی رپورٹس", "📊 کلکس رپورٹ"])
