@@ -271,12 +271,12 @@ if menu == "✨ نیا رجسٹریشن":
         st.stop()
     
     with st.form("register_form"):
-        name = st.text_input("مکمل نام")
-        mobile = st.text_input("موبائل نمبر")
-        password = st.text_input("پاس ورڈ", type="password")
-        confirm = st.text_input("پاس ورڈ کی تصدیق", type="password")
-        ref_code = st.text_input("کسی کا ریفرل کوڈ ہے؟ (اختیاری)")
-        submitted = st.form_submit_button("رجسٹر کریں")
+        name = st.text_input("Name")
+        mobile = st.text_input("Mobile Number")
+        password = st.text_input("Password", type="password")
+        confirm = st.text_input("Confirm Password", type="password")
+        ref_code = st.text_input("Referral Code")
+        submitted = st.form_submit_button("Register")
         
         if submitted:
             if not name or not mobile or not password:
