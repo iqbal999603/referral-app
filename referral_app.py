@@ -242,12 +242,12 @@ st.sidebar.image("https://img.icons8.com/color/96/000000/smartphone.png", width=
 admin_secret = st.sidebar.text_input("🔑 ", type="password", placeholder="Admin")
 
 if admin_secret == ADMIN_SECRET:
-    menu = st.sidebar.radio("📌 Select Option", ["✨ New Registration", "🔐 Login", "🏠 My Points", 
-                                                "🏆 Leaderboard", "📜 Referral History", "💰 Discount History",
-                                                "📊 Click Analytics", "🔧 Repair Categories", "👑 Admin Panel"])
+    menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس", 
+                                                "🏆 لیڈر بورڈ", "📜 ریفرل ہسٹری", "💰 ڈسکاؤنٹ ہسٹری",
+                                                "📊 کلکس اینالائٹکس", "🔧 مرمت کی اقسام", "👑 ایڈمن پینل"])
 else:
-    menu = st.sidebar.radio("📌 Select Option", ["✨ New Registration", "🔐 Login", "🏠 My Points",
-                                                "🏆 Leaderboard", "🔧 Repair Categories"])
+    menu = st.sidebar.radio("📌 منتخب کریں", ["✨ نیا رجسٹریشن", "🔐 لاگ ان", "🏠 میرے پوائنٹس",
+                                                "🏆 لیڈر بورڈ", "🔧 مرمت کی اقسام"])
 
 # Header
 st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing</h1><p><h3>Ali Laal Road Layyah:  03006762827</h3></p><p><h2>ریفرل کرو، موبائل ریپئرنگ ڈسکاؤنٹ پاؤ<h2></p></div>', unsafe_allow_html=True)
