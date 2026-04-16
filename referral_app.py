@@ -59,6 +59,13 @@ st.markdown("""
         border-radius: 10px;
         margin: 5px 0;
     }
+    .discount-history-item {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 10px;
+        border-radius: 10px;
+        margin: 5px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -474,7 +481,7 @@ elif menu == "📜 ریفرل ہسٹری":
     else:
         st.info("ابھی تک کوئی ریفرل نہیں۔ اپنا ریفرل لنک دوستوں کو بھیجیں!")
 
-# ==================== DISCOUNT HISTORY ====================
+# ==================== DISCOUNT HISTORY (NEW COLOR - SAME AS REFERRAL HISTORY) ====================
 elif menu == "💰 ڈسکاؤنٹ ہسٹری":
     if not st.session_state.logged_in:
         st.warning("براہ کرم پہلے لاگ ان کریں۔")
@@ -486,7 +493,7 @@ elif menu == "💰 ڈسکاؤنٹ ہسٹری":
     
     if history:
         for h in history:
-            st.markdown(f'<div class="notification">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="discount-history-item">🎁 {h[2][:10]} کو {h[0]} پوائنٹس استعمال کر کے {h[1]:.2f} PKR کا ڈسکاؤنٹ لیا</div>', unsafe_allow_html=True)
     else:
         st.info("ابھی تک کوئی ڈسکاؤنٹ کلیم نہیں کیا۔")
 
