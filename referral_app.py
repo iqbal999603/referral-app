@@ -424,7 +424,7 @@ elif menu == "🏠 میرے پوائنٹس":
                 st.rerun()
         else:
             need = 500 - points
-            st.info(f"📈 مزید {need} پوائنٹس درکار ہیں ( {need:.2f} ڈسکاؤنٹ کے لیے ابھی باقی روپے)")
+            st.info(f"📈 مزید {need} پوائنٹس درکار ہیں ( {need:.2f} ڈسکاؤنٹ کے لیے ابھی باقی Pkr)")
         
         if st.button("🚪 لاگ آؤٹ"):
             st.session_state.logged_in = False
