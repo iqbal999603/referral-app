@@ -335,9 +335,9 @@ elif menu == "🔐 لاگ ان":
         st.stop()
     
     with st.form("login_form"):
-        mobile = st.text_input("موبائل نمبر")
-        password = st.text_input("پاس ورڈ", type="password")
-        submitted = st.form_submit_button("لاگ ان")
+        mobile = st.text_input("Mobile Number")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
         
         if submitted:
             c.execute("SELECT * FROM users WHERE mobile=?", (mobile,))
