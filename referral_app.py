@@ -457,7 +457,7 @@ elif menu == "🏆 لیڈر بورڈ":
             with col3:
                 st.write(f"⭐ {user[1]} پوائنٹس")
         st.divider()
-        st.caption("PKRہر ریفرل پر 50 پوائنٹس | 500 پوائنٹس =  500 PKR ڈسکاؤنٹ")
+        st.caption("PKR ہر ریفرل پر 50 پوائنٹس | 500 پوائنٹس =  500 PKR ڈسکاؤنٹ")
     else:
         st.info("ابھی کوئی صارف نہیں۔")
 
