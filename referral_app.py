@@ -371,7 +371,7 @@ elif menu == "🏠 میرے پوائنٹس":
     
     if user:
         name, mobile, code, points = user[1], user[2], user[4], user[5]
-        discount = points * 0.5
+        discount = points * 1
         referral_link = f"https://alimobile-referral.streamlit.app/?ref={code}"
         
         col1, col2 = st.columns(2)
@@ -424,7 +424,7 @@ elif menu == "🏠 میرے پوائنٹس":
                 st.rerun()
         else:
             need = 500 - points
-            st.info(f"📈 مزید {need} پوائنٹس درکار ہیں (یہ {need*0.5:.2f} PKR ڈسکاؤنٹ کے لیے)")
+            st.info(f"📈 مزید {need} پوائنٹس درکار ہیں (یہ {need*1:.2f} PKR ڈسکاؤنٹ کے لیے)")
         
         if st.button("🚪 لاگ آؤٹ"):
             st.session_state.logged_in = False
