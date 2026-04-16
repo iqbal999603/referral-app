@@ -250,7 +250,7 @@ else:
                                                 "🏆 لیڈر بورڈ", "🔧 مرمت کی اقسام"])
 
 # Header
-st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing</h1><p><h2>Ali Laal Road Layyah  03006762827</h2></p><p><h2>ریفرل کرو، موبائل ریپئرنگ ڈسکاؤنٹ پاؤ<h2></p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📱 Ali Mobiles Repairing</h1><p><h3>Ali Laal Road Layyah:  03006762827</h3></p><p><h2>ریفرل کرو، موبائل ریپئرنگ ڈسکاؤنٹ پاؤ<h2></p></div>', unsafe_allow_html=True)
 
 # ==================== REGISTRATION (WITH DEVICE TRACKING) ====================
 if menu == "✨ نیا رجسٹریشن":
