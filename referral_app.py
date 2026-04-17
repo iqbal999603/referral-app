@@ -8,11 +8,12 @@ import pandas as pd
 import urllib.parse
 import re
 import time
+import os
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (same as original) ==========
+# ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
@@ -38,10 +39,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ========== SECRETS (NO FALLBACK) ==========
+# ========== SECRETS ==========
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+    APP_URL = st.secrets.get("APP_URL", None)  # optional: override auto-detection
 except:
     st.error("❌ Admin secrets not configured. Please set ADMIN_SECRET and ADMIN_PASSWORD in .streamlit/secrets.toml")
     st.stop()
@@ -51,6 +53,7 @@ def get_db_connection():
     conn = sqlite3.connect('referral.db', check_same_thread=False, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA foreign_keys = ON")  # enable FK constraints
     return conn
 
 def init_db():
@@ -74,7 +77,9 @@ def init_db():
                   referred_user_id INTEGER,
                   points_earned INTEGER,
                   referral_date TEXT,
-                  UNIQUE(referrer_id, referred_user_id))''')
+                  UNIQUE(referrer_id, referred_user_id),
+                  FOREIGN KEY(referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+                  FOREIGN KEY(referred_user_id) REFERENCES users(id) ON DELETE CASCADE)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,14 +87,16 @@ def init_db():
                   points_used INTEGER,
                   discount_amount REAL,
                   claim_date TEXT,
-                  status TEXT)''')
+                  status TEXT,
+                  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS notifications
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
                   message TEXT,
                   is_read INTEGER DEFAULT 0,
-                  created_at TEXT)''')
+                  created_at TEXT,
+                  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS repair_categories
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,7 +108,9 @@ def init_db():
                   user_id INTEGER,
                   category_id INTEGER,
                   selection_date TEXT,
-                  UNIQUE(user_id, category_id))''')
+                  UNIQUE(user_id, category_id),
+                  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                  FOREIGN KEY(category_id) REFERENCES repair_categories(id) ON DELETE CASCADE)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,9 +118,11 @@ def init_db():
                   referrer_id INTEGER,
                   ip_address TEXT,
                   clicked_at TEXT,
-                  is_converted INTEGER DEFAULT 0)''')
+                  is_converted INTEGER DEFAULT 0,
+                  FOREIGN KEY(referrer_id) REFERENCES users(id) ON DELETE CASCADE)''')
     
     c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_referrer ON referral_clicks(referrer_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_ip ON referral_clicks(ip_address, referrer_id)")
     
     conn.commit()
     
@@ -124,6 +135,7 @@ def init_db():
     
     if 'referred_by_id' not in cols:
         c.execute("ALTER TABLE users ADD COLUMN referred_by_id INTEGER")
+        # Migrate old data if 'referred_by' existed
         if 'referred_by' in cols:
             c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
             rows = c.fetchall()
@@ -134,6 +146,7 @@ def init_db():
                     c.execute("UPDATE users SET referred_by_id = ? WHERE id = ?", (ref_user[0], uid))
             conn.commit()
     
+    # Insert default repair categories if empty
     c.execute("SELECT COUNT(*) FROM repair_categories")
     if c.fetchone()[0] == 0:
         categories = [
@@ -155,8 +168,17 @@ def init_db():
 init_db()
 
 # ========== HELPER FUNCTIONS ==========
-def generate_code():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+def generate_unique_code():
+    """Generate a unique 6-character alphanumeric referral code."""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE referral_code = ?", (code,))
+        exists = c.fetchone() is not None
+        conn.close()
+        if not exists:
+            return code
 
 def hash_password(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
@@ -194,6 +216,21 @@ def get_safe_ip():
         pass
     return "local"
 
+def get_base_url():
+    """Dynamically get the app's base URL from request or fallback to secret."""
+    if APP_URL:
+        return APP_URL.rstrip('/')
+    try:
+        if hasattr(st, 'context') and hasattr(st.context, 'headers'):
+            host = st.context.headers.get('Host', '')
+            if host:
+                # Assume HTTPS for production, but allow HTTP for local testing
+                scheme = "https" if "streamlit" in host else "http"
+                return f"{scheme}://{host}"
+    except:
+        pass
+    return "https://alimobile-referral.streamlit.app"  # fallback
+
 def track_referral_click(referral_code, ip_address):
     if ip_address == "unknown":
         return
@@ -202,8 +239,26 @@ def track_referral_click(referral_code, ip_address):
     c.execute("SELECT id FROM users WHERE referral_code = ?", (referral_code,))
     user = c.fetchone()
     if user:
-        c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at) VALUES (?,?,?,?)",
-                  (referral_code, user[0], ip_address, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        # Avoid duplicate clicks from same IP within 1 hour
+        cutoff = (datetime.now() - datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("SELECT id FROM referral_clicks WHERE referrer_id = ? AND ip_address = ? AND clicked_at > ?",
+                  (user[0], ip_address, cutoff))
+        if not c.fetchone():
+            c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at) VALUES (?,?,?,?)",
+                      (referral_code, user[0], ip_address, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+    conn.close()
+
+def update_click_conversion(referrer_id, ip_address):
+    """Mark the most recent click from this IP as converted (used after registration)."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""SELECT id FROM referral_clicks 
+                 WHERE referrer_id = ? AND ip_address = ? AND is_converted = 0
+                 ORDER BY clicked_at DESC LIMIT 1""", (referrer_id, ip_address))
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE referral_clicks SET is_converted = 1 WHERE id = ?", (row[0],))
         conn.commit()
     conn.close()
 
@@ -212,7 +267,7 @@ def get_click_stats(user_id):
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id = ?", (user_id,))
     total_clicks = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id = ?", (user_id,))
+    c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id = ? AND is_converted = 1", (user_id,))
     total_conversions = c.fetchone()[0]
     conversion_rate = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
     conn.close()
@@ -237,11 +292,7 @@ def normalize_csv_columns(df):
 def delete_user_and_related(user_id):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM referral_history WHERE referrer_id = ? OR referred_user_id = ?", (user_id, user_id))
-    c.execute("DELETE FROM discount_history WHERE user_id = ?", (user_id,))
-    c.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
-    c.execute("DELETE FROM user_repair_selections WHERE user_id = ?", (user_id,))
-    c.execute("DELETE FROM referral_clicks WHERE referrer_id = ?", (user_id,))
+    # Foreign keys with ON DELETE CASCADE will handle related tables
     c.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
@@ -256,19 +307,21 @@ def reset_user_password(user_id):
     c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
     conn.commit()
     conn.close()
-    add_notification(user_id, f"🔐 Your password has been reset by admin. Please contact admin for your new password.")
-    return name
+    add_notification(user_id, f"🔐 Your password has been reset by admin. Your new temporary password is: {new_pass}")
+    return name, new_pass
 
-# ========== RATE LIMITING ==========
-def rate_limit(action_name, user_id=None, limit=10, per_seconds=60):
-    key = f"rate_limit_{action_name}_{user_id if user_id else 'anon'}"
+# ========== RATE LIMITING (in-memory, shared across sessions) ==========
+_rate_limit_store = {}  # {key: [timestamps]}
+
+def rate_limit(action_name, identifier, limit=10, per_seconds=60):
+    key = f"{action_name}_{identifier}"
     now = time.time()
-    if key not in st.session_state:
-        st.session_state[key] = []
-    st.session_state[key] = [t for t in st.session_state[key] if now - t < per_seconds]
-    if len(st.session_state[key]) >= limit:
+    if key not in _rate_limit_store:
+        _rate_limit_store[key] = []
+    _rate_limit_store[key] = [t for t in _rate_limit_store[key] if now - t < per_seconds]
+    if len(_rate_limit_store[key]) >= limit:
         return False
-    st.session_state[key].append(now)
+    _rate_limit_store[key].append(now)
     return True
 
 # ========== CACHED LEADERBOARD ==========
@@ -334,7 +387,7 @@ page_map = {
 }
 st.session_state.page = page_map.get(selected_page, "Home")
 
-# ========== NOTIFICATIONS (MANUAL MARK READ) ==========
+# ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
     notifs = get_notifications(st.session_state.user_id)
     if notifs:
@@ -438,7 +491,7 @@ elif st.session_state.page == "Register":
                 if c.fetchone():
                     st.error("Mobile number already registered.")
                 else:
-                    new_code = generate_code()
+                    new_code = generate_unique_code()
                     hashed = hash_password(password)
                     referrer_id = None
                     user_ip = get_safe_ip()
@@ -450,13 +503,18 @@ elif st.session_state.page == "Register":
                             ref_user = c.fetchone()
                             if ref_user:
                                 referrer_id = ref_user[0]
+                                # Add points to referrer
                                 c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
                                 if c.rowcount == 0:
                                     raise Exception("Failed to update referrer points")
-                                c.execute("""INSERT INTO referral_clicks 
-                                             (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
-                                             VALUES (?,?,?,?,?)""",
-                                          (ref_code, referrer_id, user_ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 1))
+                                # Mark the click as converted
+                                update_click_conversion(referrer_id, user_ip)
+                                # Insert referral history
+                                join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                c.execute("""INSERT INTO referral_history 
+                                             (referrer_id, referred_user_id, points_earned, referral_date) 
+                                             VALUES (?,?,?,?)""",
+                                          (referrer_id, None, 50, join_date))
                                 add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
                                 st.success("Referrer got 50 points!")
                             else:
@@ -469,11 +527,10 @@ elif st.session_state.page == "Register":
                                   (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
                         user_id = c.lastrowid
                         
+                        # Update referral_history with the actual referred_user_id
                         if referrer_id:
-                            c.execute("""INSERT INTO referral_history 
-                                         (referrer_id, referred_user_id, points_earned, referral_date) 
-                                         VALUES (?,?,?,?)""",
-                                      (referrer_id, user_id, 50, join_date))
+                            c.execute("UPDATE referral_history SET referred_user_id = ? WHERE referrer_id = ? AND referred_user_id IS NULL",
+                                      (user_id, referrer_id))
                         
                         conn.commit()
                         st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
@@ -536,8 +593,8 @@ elif st.session_state.page == "Dashboard":
     if user:
         name, mobile, code, points = user
         discount = min(points, 500)
-        host = st.query_params.get("host", "alimobile-referral.streamlit.app")
-        referral_link = f"https://{host}/?ref={code}"
+        base_url = get_base_url()
+        referral_link = f"{base_url}/?ref={code}"
         total_clicks, total_conversions, conv_rate = get_click_stats(st.session_state.user_id)
         col1, col2 = st.columns(2)
         with col1:
@@ -762,8 +819,8 @@ elif st.session_state.page == "AdminPanel":
                 cols[5].write(u[5] if u[5] else "N/A")
                 with cols[6]:
                     if st.button("Reset Pwd", key=f"reset_{u[0]}"):
-                        name = reset_user_password(u[0])
-                        st.success(f"Password for {name} reset. User notified (no plain text).")
+                        name, new_pass = reset_user_password(u[0])
+                        st.success(f"Password for {name} reset. New password: `{new_pass}` (user also notified)")
                         st.rerun()
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
@@ -824,7 +881,7 @@ elif st.session_state.page == "AdminPanel":
                                 continue
                             c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
                             if not c.fetchone():
-                                new_code = generate_code()
+                                new_code = generate_unique_code()
                                 temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
                                 hashed = hash_password(temp_pass)
                                 points = int(row.get("points", 0)) if pd.notna(row.get("points")) else 0
