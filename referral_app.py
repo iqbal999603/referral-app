@@ -426,8 +426,8 @@ if st.session_state.page == "Home":
                 <li>🎧 Audio / Speaker Fix</li>
             </ul>
             <p><strong>Same Day Service | # Copyright © 2026–2027 Ali Mobile Repair
-# All Rights Reserved.
-# Unauthorized use or duplication is prohibited.</strong></p>
+            # All Rights Reserved.
+            # Unauthorized use or duplication is prohibited.</strong></p>
         </div>
         """, unsafe_allow_html=True)
     else:
