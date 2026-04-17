@@ -12,7 +12,7 @@ import time
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (same as original, kept for styling) ==========
+# ========== CUSTOM CSS (same as original) ==========
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
@@ -46,7 +46,7 @@ except:
     st.error("❌ Admin secrets not configured. Please set ADMIN_SECRET and ADMIN_PASSWORD in .streamlit/secrets.toml")
     st.stop()
 
-# ========== DATABASE SETUP WITH TRANSACTIONS & CONSTRAINTS ==========
+# ========== DATABASE SETUP ==========
 def get_db_connection():
     conn = sqlite3.connect('referral.db', check_same_thread=False, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -111,7 +111,6 @@ def init_db():
                   clicked_at TEXT,
                   is_converted INTEGER DEFAULT 0)''')
     
-    # Index for performance
     c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_referrer ON referral_clicks(referrer_id)")
     
     conn.commit()
@@ -125,7 +124,6 @@ def init_db():
     
     if 'referred_by_id' not in cols:
         c.execute("ALTER TABLE users ADD COLUMN referred_by_id INTEGER")
-        # Migrate old data if any
         if 'referred_by' in cols:
             c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
             rows = c.fetchall()
@@ -136,7 +134,6 @@ def init_db():
                     c.execute("UPDATE users SET referred_by_id = ? WHERE id = ?", (ref_user[0], uid))
             conn.commit()
     
-    # Insert default repair categories if empty
     c.execute("SELECT COUNT(*) FROM repair_categories")
     if c.fetchone()[0] == 0:
         categories = [
@@ -187,9 +184,7 @@ def mark_notification_read(notif_id):
     conn.commit()
     conn.close()
 
-# Removed external IP API – use local placeholder
 def get_safe_ip():
-    # Try to get from Streamlit's experimental context (1.36+)
     try:
         if hasattr(st, 'context') and hasattr(st.context, 'headers'):
             forwarded = st.context.headers.get('X-Forwarded-For')
@@ -197,7 +192,7 @@ def get_safe_ip():
                 return forwarded.split(',')[0].strip()
     except:
         pass
-    return "local"  # fallback, no external call
+    return "local"
 
 def track_referral_click(referral_code, ip_address):
     if ip_address == "unknown":
@@ -242,7 +237,6 @@ def normalize_csv_columns(df):
 def delete_user_and_related(user_id):
     conn = get_db_connection()
     c = conn.cursor()
-    # ON DELETE CASCADE would be better but we do manually for safety
     c.execute("DELETE FROM referral_history WHERE referrer_id = ? OR referred_user_id = ?", (user_id, user_id))
     c.execute("DELETE FROM discount_history WHERE user_id = ?", (user_id,))
     c.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
@@ -262,26 +256,30 @@ def reset_user_password(user_id):
     c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
     conn.commit()
     conn.close()
-    # Do NOT send plain password – just notify reset happened
     add_notification(user_id, f"🔐 Your password has been reset by admin. Please contact admin for your new password.")
     return name
 
 # ========== RATE LIMITING ==========
 def rate_limit(action_name, user_id=None, limit=10, per_seconds=60):
-    """
-    Simple rate limiting using session state.
-    Returns True if allowed, False if rate limit exceeded.
-    """
     key = f"rate_limit_{action_name}_{user_id if user_id else 'anon'}"
     now = time.time()
     if key not in st.session_state:
         st.session_state[key] = []
-    # Clean old timestamps
     st.session_state[key] = [t for t in st.session_state[key] if now - t < per_seconds]
     if len(st.session_state[key]) >= limit:
         return False
     st.session_state[key].append(now)
     return True
+
+# ========== CACHED LEADERBOARD ==========
+@st.cache_data(ttl=10)
+def get_leaderboard():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 20")
+    data = c.fetchall()
+    conn.close()
+    return data
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -294,9 +292,8 @@ if 'page' not in st.session_state:
     st.session_state.page = "Home"
 if 'registration_success' not in st.session_state:
     st.session_state.registration_success = False
-# No more repair_reported set – we rely on database unique constraint
 
-# ========== REFERRAL TRACKING (NO EXTERNAL IP) ==========
+# ========== REFERRAL TRACKING ==========
 query_params = st.query_params
 if 'ref' in query_params:
     ref_code = query_params['ref']
@@ -431,7 +428,6 @@ elif st.session_state.page == "Register":
             elif not re.match(r'^[0-9]{10,15}$', mobile):
                 st.error("Mobile number must be 10-15 digits.")
             else:
-                # Rate limiting
                 if not rate_limit("register", mobile, limit=3, per_seconds=60):
                     st.error("Too many registration attempts. Please wait a minute.")
                     st.stop()
@@ -447,7 +443,6 @@ elif st.session_state.page == "Register":
                     referrer_id = None
                     user_ip = get_safe_ip()
                     
-                    # Begin transaction for referral points
                     conn.execute("BEGIN IMMEDIATE")
                     try:
                         if ref_code:
@@ -455,17 +450,13 @@ elif st.session_state.page == "Register":
                             ref_user = c.fetchone()
                             if ref_user:
                                 referrer_id = ref_user[0]
-                                # Atomic points update
                                 c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
                                 if c.rowcount == 0:
                                     raise Exception("Failed to update referrer points")
-                                
-                                # Insert click conversion
                                 c.execute("""INSERT INTO referral_clicks 
                                              (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
                                              VALUES (?,?,?,?,?)""",
                                           (ref_code, referrer_id, user_ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 1))
-                                
                                 add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
                                 st.success("Referrer got 50 points!")
                             else:
@@ -479,7 +470,6 @@ elif st.session_state.page == "Register":
                         user_id = c.lastrowid
                         
                         if referrer_id:
-                            # Insert referral history – unique constraint prevents duplicate
                             c.execute("""INSERT INTO referral_history 
                                          (referrer_id, referred_user_id, points_earned, referral_date) 
                                          VALUES (?,?,?,?)""",
@@ -514,7 +504,6 @@ elif st.session_state.page == "Login":
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Login", use_container_width=True)
         if submitted:
-            # Rate limiting on login attempts
             if not rate_limit("login", mobile, limit=5, per_seconds=60):
                 st.error("Too many login attempts. Please wait.")
                 st.stop()
@@ -569,7 +558,6 @@ elif st.session_state.page == "Dashboard":
             with cols[idx]:
                 st.markdown(f'<a href="{url}" target="_blank" class="social-share-btn {platform}" style="display:block;">📱 {platform.capitalize()}</a>', unsafe_allow_html=True)
         
-        # Atomic discount claim with retry
         if points >= 500:
             if st.button("🎁 Claim Discount", use_container_width=True):
                 if not rate_limit("claim_discount", st.session_state.user_id, limit=1, per_seconds=30):
@@ -579,7 +567,6 @@ elif st.session_state.page == "Dashboard":
                     c = conn.cursor()
                     conn.execute("BEGIN IMMEDIATE")
                     try:
-                        # Re-check points inside transaction
                         c.execute("SELECT points FROM users WHERE id = ?", (st.session_state.user_id,))
                         current_points = c.fetchone()[0]
                         if current_points < 500:
@@ -614,15 +601,6 @@ elif st.session_state.page == "Dashboard":
             st.session_state.user_code = None
             st.session_state.page = "Home"
             st.rerun()
-
-@st.cache_data(ttl=10)
-def get_leaderboard():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 20")
-    data = c.fetchall()
-    conn.close()
-    return data
 
 elif st.session_state.page == "Leaderboard":
     st.subheader("🏆 Top Referrers")
@@ -719,7 +697,6 @@ elif st.session_state.page == "RepairCategories":
         with st.expander(f"🔧 {cat[1]}"):
             st.write(cat[2])
             if st.session_state.logged_in:
-                # Check if already reported (database check)
                 conn2 = get_db_connection()
                 c2 = conn2.cursor()
                 c2.execute("SELECT 1 FROM user_repair_selections WHERE user_id = ? AND category_id = ?", (st.session_state.user_id, cat[0]))
@@ -828,7 +805,6 @@ elif st.session_state.page == "AdminPanel":
                 df = pd.read_csv(uploaded)
                 df = normalize_csv_columns(df)
                 if st.button("Merge Data"):
-                    # Validate columns
                     required = ['name', 'mobile']
                     if not all(col in df.columns for col in required):
                         st.error("CSV must contain 'name' and 'mobile' columns")
