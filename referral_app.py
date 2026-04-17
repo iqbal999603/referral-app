@@ -15,14 +15,12 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== CUSTOM CSS (VIBRANT & MODERN) ==========
 st.markdown("""
 <style>
-    /* Global styles */
     .main {
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
     .stApp {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
-    /* Top header */
     .top-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         padding: 1rem 2rem;
@@ -40,7 +38,6 @@ st.markdown("""
         margin: 0.5rem 0 0;
         font-size: 1.2rem;
     }
-    /* Navigation bar */
     .nav-container {
         background: rgba(255,255,255,0.2);
         backdrop-filter: blur(10px);
@@ -66,7 +63,6 @@ st.markdown("""
         background: rgba(255,255,255,0.6);
         color: #1e3c72;
     }
-    /* Cards */
     .card {
         background: white;
         border-radius: 20px;
@@ -150,11 +146,10 @@ except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
-# ========== DATABASE (THREAD-SAFE) ==========
-@st.cache_resource
+# ========== DATABASE (NEW CONNECTION EACH TIME - NO CACHE) ==========
 def get_db_connection():
-    conn = sqlite3.connect('referral.db', check_same_thread=False)
-    return conn
+    """Returns a new SQLite connection. Must be closed after use."""
+    return sqlite3.connect('referral.db', check_same_thread=False)
 
 def init_db():
     conn = get_db_connection()
@@ -328,10 +323,8 @@ def normalize_csv_columns(df):
     return df
 
 def delete_user_and_related(user_id):
-    """Safely delete user and all related records"""
     conn = get_db_connection()
     c = conn.cursor()
-    # Delete from all related tables
     c.execute("DELETE FROM referral_history WHERE referrer_id = ? OR referred_user_id = ?", (user_id, user_id))
     c.execute("DELETE FROM discount_history WHERE user_id = ?", (user_id,))
     c.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
@@ -342,7 +335,6 @@ def delete_user_and_related(user_id):
     conn.close()
 
 def reset_user_password(user_id):
-    """Generate new random password, hash it, update DB, return plain password"""
     new_pass = ''.join(random.choices(string.digits, k=6))
     hashed = hash_password(new_pass)
     conn = get_db_connection()
@@ -369,7 +361,7 @@ if 'ref' in query_params:
     ip = get_real_ip()
     track_referral_click(ref_code, ip)
 
-# ========== TOP HEADER (SHOP INFO) ==========
+# ========== TOP HEADER ==========
 st.markdown("""
 <div class="top-header">
     <h1>📱 Ali Mobiles Repairing</h1>
@@ -378,19 +370,17 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ========== TOP NAVIGATION (No Sidebar) ==========
+# ========== TOP NAVIGATION ==========
 nav_cols = st.columns([1, 2, 1])
 with nav_cols[1]:
     menu_options = ["🏠 Home", "✨ New Registration", "🔐 Login", "🏆 Leaderboard", "🔧 Repair Categories"]
     if st.session_state.logged_in:
         menu_options += ["🏠 My Points", "📜 Referral History", "💰 Discount History", "📊 Click Analytics"]
-    # Admin secret check
     admin_secret_input = st.text_input("🔑 Admin Access", type="password", placeholder="Enter admin code", key="admin_secret_input")
     if admin_secret_input == ADMIN_SECRET:
         menu_options += ["👑 Admin Panel"]
     selected_page = st.selectbox("Navigate", menu_options, index=0, label_visibility="collapsed")
 
-# Map selection to page
 page_map = {
     "🏠 Home": "Home",
     "✨ New Registration": "Register",
@@ -405,8 +395,7 @@ page_map = {
 }
 st.session_state.page = page_map.get(selected_page, "Home")
 
-# ========== PAGE RENDER ==========
-# Helper to show notification bell (simplified)
+# ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
     notifs = get_notifications(st.session_state.user_id)
     if notifs:
@@ -415,10 +404,9 @@ if st.session_state.logged_in:
                 st.markdown(f'<div class="notification">📢 {n[2]}</div>', unsafe_allow_html=True)
                 mark_notification_read(n[0])
 
-# ---------- HOME PAGE (dynamic based on login) ----------
+# ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
-        # Show registration and login options on homepage
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
@@ -433,7 +421,6 @@ if st.session_state.page == "Home":
                 if st.button("➡️ Login", use_container_width=True):
                     st.session_state.page = "Login"
                     st.rerun()
-        # Shop info
         st.markdown("""
         <div class="card">
             <h3>📍 Our Services</h3>
@@ -449,8 +436,7 @@ if st.session_state.page == "Home":
         </div>
         """, unsafe_allow_html=True)
     else:
-        # Logged in user sees dashboard summary
-        st.markdown('<div class="gradient-card"><h2>🎉 Welcome back, ' + st.session_state.user_name + '!</h2><p>Your referral program dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="gradient-card"><h2>🎉 Welcome back, {st.session_state.user_name}!</h2><p>Your referral program dashboard</p></div>', unsafe_allow_html=True)
         conn = get_db_connection()
         c = conn.cursor()
         c.execute("SELECT points, referral_code FROM users WHERE id=?", (st.session_state.user_id,))
@@ -476,7 +462,6 @@ if st.session_state.page == "Home":
                 st.session_state.page = "Leaderboard"
                 st.rerun()
 
-# ---------- REGISTRATION ----------
 elif st.session_state.page == "Register":
     if st.session_state.logged_in:
         st.success("You are already logged in.")
@@ -513,7 +498,6 @@ elif st.session_state.page == "Register":
                             referrer_id = ref_user[0]
                             c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
                             conn.commit()
-                            # mark click as converted
                             c.execute("UPDATE referral_clicks SET is_converted = 1 WHERE referral_code = ? AND is_converted = 0 ORDER BY clicked_at DESC LIMIT 1", (ref_code,))
                             conn.commit()
                             add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
@@ -536,7 +520,6 @@ elif st.session_state.page == "Register":
                         st.session_state.page = "Login"
                         st.rerun()
 
-# ---------- LOGIN ----------
 elif st.session_state.page == "Login":
     if st.session_state.logged_in:
         st.success("Already logged in.")
@@ -564,7 +547,6 @@ elif st.session_state.page == "Login":
             else:
                 st.error("Invalid mobile or password.")
 
-# ---------- DASHBOARD (My Points) ----------
 elif st.session_state.page == "Dashboard":
     if not st.session_state.logged_in:
         st.warning("Please login first.")
@@ -620,7 +602,6 @@ elif st.session_state.page == "Dashboard":
             st.session_state.page = "Home"
             st.rerun()
 
-# ---------- LEADERBOARD ----------
 elif st.session_state.page == "Leaderboard":
     st.subheader("🏆 Top Referrers")
     conn = get_db_connection()
@@ -642,7 +623,6 @@ elif st.session_state.page == "Leaderboard":
     else:
         st.info("No users yet.")
 
-# ---------- REFERRAL HISTORY ----------
 elif st.session_state.page == "ReferralHistory":
     if not st.session_state.logged_in:
         st.warning("Please login first.")
@@ -663,7 +643,6 @@ elif st.session_state.page == "ReferralHistory":
     else:
         st.info("No referrals yet. Share your link!")
 
-# ---------- DISCOUNT HISTORY ----------
 elif st.session_state.page == "DiscountHistory":
     if not st.session_state.logged_in:
         st.warning("Please login first.")
@@ -680,7 +659,6 @@ elif st.session_state.page == "DiscountHistory":
     else:
         st.info("No discounts claimed yet.")
 
-# ---------- CLICK ANALYTICS ----------
 elif st.session_state.page == "ClickAnalytics":
     if not st.session_state.logged_in:
         st.warning("Please login first.")
@@ -705,7 +683,6 @@ elif st.session_state.page == "ClickAnalytics":
     else:
         st.info("No clicks yet.")
 
-# ---------- REPAIR CATEGORIES ----------
 elif st.session_state.page == "RepairCategories":
     st.subheader("🔧 Common Mobile Issues")
     conn = get_db_connection()
@@ -740,7 +717,6 @@ elif st.session_state.page == "RepairCategories":
         for iss in issues:
             st.write(f"📌 {iss[1][:10]}: {iss[0]}")
 
-# ---------- ADMIN PANEL ----------
 elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
     if admin_pass == ADMIN_PASSWORD:
