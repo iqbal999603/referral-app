@@ -496,30 +496,23 @@ elif st.session_state.page == "Register":
                     referrer_id = None
                     user_ip = get_safe_ip()
                     
+                    # خود ریفرل چیک کریں
+                    if ref_code:
+                        c.execute("SELECT id, points, mobile FROM users WHERE referral_code=?", (ref_code,))
+                        ref_user = c.fetchone()
+                        if ref_user:
+                            # اگر ریفرل کوڈ اسی موبائل نمبر کا ہے جو داخل کیا جا رہا ہے تو منع کریں
+                            if ref_user[2] == mobile:
+                                st.error("You cannot refer yourself!")
+                                conn.close()
+                                st.stop()
+                            referrer_id = ref_user[0]
+                        else:
+                            st.warning("Invalid referral code.")
+                    
                     conn.execute("BEGIN IMMEDIATE")
                     try:
-                        if ref_code:
-                            c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
-                            ref_user = c.fetchone()
-                            if ref_user:
-                                referrer_id = ref_user[0]
-                                # Add points to referrer
-                                c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
-                                if c.rowcount == 0:
-                                    raise Exception("Failed to update referrer points")
-                                # Mark the click as converted
-                                update_click_conversion(referrer_id, user_ip)
-                                # Insert referral history
-                                join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                c.execute("""INSERT INTO referral_history 
-                                             (referrer_id, referred_user_id, points_earned, referral_date) 
-                                             VALUES (?,?,?,?)""",
-                                          (referrer_id, None, 50, join_date))
-                                add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
-                                st.success("Referrer got 50 points!")
-                            else:
-                                st.warning("Invalid referral code.")
-                        
+                        # پہلے یوزر داخل کریں
                         join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         c.execute("""INSERT INTO users 
                                      (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
@@ -527,14 +520,33 @@ elif st.session_state.page == "Register":
                                   (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
                         user_id = c.lastrowid
                         
-                        # Update referral_history with the actual referred_user_id
+                        # اگر ریفرل موجود ہے تو پوائنٹس اور ہسٹری شامل کریں
                         if referrer_id:
-                            c.execute("UPDATE referral_history SET referred_user_id = ? WHERE referrer_id = ? AND referred_user_id IS NULL",
-                                      (user_id, referrer_id))
+                            # پہلے چیک کریں کہ کہیں پہلے سے ہی ریفرل ہسٹری موجود تو نہیں (unique constraint)
+                            c.execute("SELECT id FROM referral_history WHERE referrer_id = ? AND referred_user_id = ?", 
+                                      (referrer_id, user_id))
+                            if not c.fetchone():
+                                # ریفرر کے پوائنٹس بڑھائیں
+                                c.execute("UPDATE users SET points = points + 50 WHERE id = ?", (referrer_id,))
+                                if c.rowcount == 0:
+                                    raise Exception("Failed to update referrer points")
+                                # ریفرل ہسٹری داخل کریں
+                                c.execute("""INSERT INTO referral_history 
+                                             (referrer_id, referred_user_id, points_earned, referral_date) 
+                                             VALUES (?,?,?,?)""",
+                                          (referrer_id, user_id, 50, join_date))
+                                add_notification(referrer_id, f"🎉 New user {name} registered using your code! +50 points.")
+                                st.success("Referrer got 50 points!")
                         
                         conn.commit()
+                        
+                        # اب کامیاب رجسٹریشن کے بعد کلک کو کنورٹ کریں (اگر کوئی میچ ہو)
+                        if referrer_id:
+                            update_click_conversion(referrer_id, user_ip)
+                        
                         st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
                         st.session_state.registration_success = True
+                        
                     except sqlite3.IntegrityError as e:
                         conn.rollback()
                         st.error(f"Registration failed due to duplicate data: {e}")
