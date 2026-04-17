@@ -6,113 +6,51 @@ import string
 from datetime import datetime
 import pandas as pd
 import urllib.parse
-import requests
 import re
+import time
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (IMPROVED) ==========
+# ========== CUSTOM CSS (same as original, kept for styling) ==========
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%);
-    }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label {
-        color: white !important;
-    }
-    .stSelectbox div[data-baseweb="select"] > div {
-        color: white !important;
-    }
+    .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
+    .stSelectbox div[data-baseweb="select"] > div { color: white !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: white;
-        color: #333;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
+        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
-    .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
-        color: #333 !important;
-    }
-    .gradient-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 20px;
-        border-radius: 15px;
-    }
-    .gradient-card p, .gradient-card h2 {
-        color: white !important;
-    }
-    .stButton button {
-        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none;
-        color: white;
-        border-radius: 40px;
-        font-weight: bold;
-        transition: 0.3s;
-    }
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    }
+    .card p, .card h3, .metric-card h3, .metric-card h4, .notification { color: #333 !important; }
+    .gradient-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 15px; }
+    .gradient-card p, .gradient-card h2 { color: white !important; }
+    .stButton button { background: linear-gradient(45deg, #ff9f43, #ff6b6b); border: none; color: white; border-radius: 40px; font-weight: bold; transition: 0.3s; }
+    .stButton button:hover { transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
-    .social-share-btn {
-        display: inline-block;
-        padding: 8px 18px;
-        margin: 5px;
-        border-radius: 30px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-        transition: 0.3s;
-        text-align: center;
-    }
-    .top-header {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem 2rem;
-        border-radius: 20px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        color: white;
-        text-align: center;
-    }
-    .streamlit-expanderHeader {
-        color: white !important;
-    }
-    .notification {
-        background: #f1f9ff;
-        padding: 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        border-left: 5px solid #4CAF50;
-        color: #333;
-    }
-    .referral-history-item, .discount-history-item {
-        background: white;
-        padding: 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        color: #333;
-    }
+    .social-share-btn { display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px; text-decoration: none; color: white; font-weight: bold; transition: 0.3s; text-align: center; }
+    .top-header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2); color: white; text-align: center; }
+    .streamlit-expanderHeader { color: white !important; }
+    .notification { background: #f1f9ff; padding: 10px; border-radius: 10px; margin: 5px 0; border-left: 5px solid #4CAF50; color: #333; }
+    .referral-history-item, .discount-history-item { background: white; padding: 10px; border-radius: 10px; margin: 5px 0; box-shadow: 0 2px 5px rgba(0,0,0,0.1); color: #333; }
 </style>
 """, unsafe_allow_html=True)
 
-# ========== SECRETS ==========
+# ========== SECRETS (NO FALLBACK) ==========
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except:
-    ADMIN_SECRET = "Admin@51214725"
-    ADMIN_PASSWORD = "Admin51214725"
+    st.error("❌ Admin secrets not configured. Please set ADMIN_SECRET and ADMIN_PASSWORD in .streamlit/secrets.toml")
+    st.stop()
 
-# ========== DATABASE ==========
+# ========== DATABASE SETUP WITH TRANSACTIONS & CONSTRAINTS ==========
 def get_db_connection():
-    conn = sqlite3.connect('referral.db', check_same_thread=False)
+    conn = sqlite3.connect('referral.db', check_same_thread=False, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 def init_db():
@@ -135,7 +73,8 @@ def init_db():
                   referrer_id INTEGER,
                   referred_user_id INTEGER,
                   points_earned INTEGER,
-                  referral_date TEXT)''')
+                  referral_date TEXT,
+                  UNIQUE(referrer_id, referred_user_id))''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,7 +100,8 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
                   category_id INTEGER,
-                  selection_date TEXT)''')
+                  selection_date TEXT,
+                  UNIQUE(user_id, category_id))''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,28 +111,32 @@ def init_db():
                   clicked_at TEXT,
                   is_converted INTEGER DEFAULT 0)''')
     
+    # Index for performance
+    c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_referrer ON referral_clicks(referrer_id)")
+    
     conn.commit()
     
-    # Add ip_address column if not exists
+    # Add columns if missing (safely)
     c.execute("PRAGMA table_info(users)")
     cols = [col[1] for col in c.fetchall()]
     if 'ip_address' not in cols:
         c.execute("ALTER TABLE users ADD COLUMN ip_address TEXT")
         conn.commit()
     
-    # Migrate old referred_by (text) to referred_by_id
-    if 'referred_by' in cols and 'referred_by_id' not in cols:
+    if 'referred_by_id' not in cols:
         c.execute("ALTER TABLE users ADD COLUMN referred_by_id INTEGER")
-        c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
-        rows = c.fetchall()
-        for uid, ref_code in rows:
-            c.execute("SELECT id FROM users WHERE referral_code = ?", (ref_code,))
-            ref_user = c.fetchone()
-            if ref_user:
-                c.execute("UPDATE users SET referred_by_id = ? WHERE id = ?", (ref_user[0], uid))
-        conn.commit()
+        # Migrate old data if any
+        if 'referred_by' in cols:
+            c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
+            rows = c.fetchall()
+            for uid, ref_code in rows:
+                c.execute("SELECT id FROM users WHERE referral_code = ?", (ref_code,))
+                ref_user = c.fetchone()
+                if ref_user:
+                    c.execute("UPDATE users SET referred_by_id = ? WHERE id = ?", (ref_user[0], uid))
+            conn.commit()
     
-    # Add repair categories if empty
+    # Insert default repair categories if empty
     c.execute("SELECT COUNT(*) FROM repair_categories")
     if c.fetchone()[0] == 0:
         categories = [
@@ -236,34 +180,28 @@ def get_notifications(user_id):
     conn.close()
     return notifs
 
-def mark_notifications_read(user_id, notif_ids):
-    if not notif_ids:
-        return
+def mark_notification_read(notif_id):
     conn = get_db_connection()
     c = conn.cursor()
-    placeholders = ','.join(['?'] * len(notif_ids))
-    c.execute(f"UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id IN ({placeholders})", [user_id] + notif_ids)
+    c.execute("UPDATE notifications SET is_read = 1 WHERE id = ?", (notif_id,))
     conn.commit()
     conn.close()
 
-def get_real_ip():
+# Removed external IP API – use local placeholder
+def get_safe_ip():
+    # Try to get from Streamlit's experimental context (1.36+)
     try:
-        # Try to get from Streamlit's request headers if available
-        if hasattr(st, 'request') and hasattr(st.request, 'headers'):
-            forwarded = st.request.headers.get('X-Forwarded-For')
+        if hasattr(st, 'context') and hasattr(st.context, 'headers'):
+            forwarded = st.context.headers.get('X-Forwarded-For')
             if forwarded:
                 return forwarded.split(',')[0].strip()
-        # Fallback to external service
-        ip = requests.get('https://api.ipify.org', timeout=2).text.strip()
-        if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
-            return ip
-        return "unknown"
     except:
-        return "unknown"
+        pass
+    return "local"  # fallback, no external call
 
 def track_referral_click(referral_code, ip_address):
     if ip_address == "unknown":
-        return  # Skip tracking if IP unknown
+        return
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE referral_code = ?", (referral_code,))
@@ -304,6 +242,7 @@ def normalize_csv_columns(df):
 def delete_user_and_related(user_id):
     conn = get_db_connection()
     c = conn.cursor()
+    # ON DELETE CASCADE would be better but we do manually for safety
     c.execute("DELETE FROM referral_history WHERE referrer_id = ? OR referred_user_id = ?", (user_id, user_id))
     c.execute("DELETE FROM discount_history WHERE user_id = ?", (user_id,))
     c.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
@@ -323,9 +262,26 @@ def reset_user_password(user_id):
     c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
     conn.commit()
     conn.close()
-    # Notify user (optional, could be implemented via notification system)
-    add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
-    return new_pass, name
+    # Do NOT send plain password – just notify reset happened
+    add_notification(user_id, f"🔐 Your password has been reset by admin. Please contact admin for your new password.")
+    return name
+
+# ========== RATE LIMITING ==========
+def rate_limit(action_name, user_id=None, limit=10, per_seconds=60):
+    """
+    Simple rate limiting using session state.
+    Returns True if allowed, False if rate limit exceeded.
+    """
+    key = f"rate_limit_{action_name}_{user_id if user_id else 'anon'}"
+    now = time.time()
+    if key not in st.session_state:
+        st.session_state[key] = []
+    # Clean old timestamps
+    st.session_state[key] = [t for t in st.session_state[key] if now - t < per_seconds]
+    if len(st.session_state[key]) >= limit:
+        return False
+    st.session_state[key].append(now)
+    return True
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -338,14 +294,13 @@ if 'page' not in st.session_state:
     st.session_state.page = "Home"
 if 'registration_success' not in st.session_state:
     st.session_state.registration_success = False
-if 'repair_reported' not in st.session_state:
-    st.session_state.repair_reported = set()  # track reported categories
+# No more repair_reported set – we rely on database unique constraint
 
-# ========== REFERRAL TRACKING ==========
+# ========== REFERRAL TRACKING (NO EXTERNAL IP) ==========
 query_params = st.query_params
 if 'ref' in query_params:
     ref_code = query_params['ref']
-    ip = get_real_ip()
+    ip = get_safe_ip()
     track_referral_click(ref_code, ip)
 
 # ========== TOP HEADER ==========
@@ -382,15 +337,17 @@ page_map = {
 }
 st.session_state.page = page_map.get(selected_page, "Home")
 
-# ========== NOTIFICATIONS ==========
+# ========== NOTIFICATIONS (MANUAL MARK READ) ==========
 if st.session_state.logged_in:
     notifs = get_notifications(st.session_state.user_id)
     if notifs:
-        notif_ids = [n[0] for n in notifs]
         with st.expander(f"🔔 You have {len(notifs)} new notification(s)"):
             for n in notifs:
-                st.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
-        mark_notifications_read(st.session_state.user_id, notif_ids)
+                col1, col2 = st.columns([4,1])
+                col1.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
+                if col2.button("✔️ Read", key=f"mark_read_{n[0]}"):
+                    mark_notification_read(n[0])
+                    st.rerun()
 
 # ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
@@ -430,7 +387,7 @@ if st.session_state.page == "Home":
         conn.close()
         if user_data:
             points, code = user_data
-            discount = min(points, 500)  # Show up to 500 PKR discount available
+            discount = min(points, 500)
             st.markdown(f'<div class="metric-card"><h3>⭐ Your Points: {points}</h3><h4>💰 Discount Available: {discount} PKR</h4></div>', unsafe_allow_html=True)
             st.info(f"🔑 Your Referral Code: **{code}**")
             if st.button("📋 Go to My Dashboard", use_container_width=True):
@@ -471,7 +428,14 @@ elif st.session_state.page == "Register":
                 st.error("Passwords do not match.")
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
+            elif not re.match(r'^[0-9]{10,15}$', mobile):
+                st.error("Mobile number must be 10-15 digits.")
             else:
+                # Rate limiting
+                if not rate_limit("register", mobile, limit=3, per_seconds=60):
+                    st.error("Too many registration attempts. Please wait a minute.")
+                    st.stop()
+                
                 conn = get_db_connection()
                 c = conn.cursor()
                 c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
@@ -481,47 +445,57 @@ elif st.session_state.page == "Register":
                     new_code = generate_code()
                     hashed = hash_password(password)
                     referrer_id = None
-                    user_ip = get_real_ip()
+                    user_ip = get_safe_ip()
                     
-                    if ref_code:
-                        c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
-                        ref_user = c.fetchone()
-                        if ref_user:
-                            referrer_id = ref_user[0]
-                            # Add 50 points to referrer
-                            c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
-                            conn.commit()
-                            
-                            # Insert a new click record as converted directly
-                            c.execute("""INSERT INTO referral_clicks 
-                                         (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
-                                         VALUES (?,?,?,?,?)""",
-                                      (ref_code, referrer_id, user_ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 1))
-                            conn.commit()
-                            
-                            add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
-                            st.success("Referrer got 50 points!")
-                        else:
-                            st.warning("Invalid referral code.")
-                    
-                    join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    c.execute("""INSERT INTO users 
-                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
-                                 VALUES (?,?,?,?,?,?,?,?)""",
-                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
-                    user_id = c.lastrowid
-                    conn.commit()
-                    
-                    if referrer_id:
-                        c.execute("""INSERT INTO referral_history 
-                                     (referrer_id, referred_user_id, points_earned, referral_date) 
-                                     VALUES (?,?,?,?)""",
-                                  (referrer_id, user_id, 50, join_date))
+                    # Begin transaction for referral points
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        if ref_code:
+                            c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
+                            ref_user = c.fetchone()
+                            if ref_user:
+                                referrer_id = ref_user[0]
+                                # Atomic points update
+                                c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
+                                if c.rowcount == 0:
+                                    raise Exception("Failed to update referrer points")
+                                
+                                # Insert click conversion
+                                c.execute("""INSERT INTO referral_clicks 
+                                             (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
+                                             VALUES (?,?,?,?,?)""",
+                                          (ref_code, referrer_id, user_ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 1))
+                                
+                                add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
+                                st.success("Referrer got 50 points!")
+                            else:
+                                st.warning("Invalid referral code.")
+                        
+                        join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        c.execute("""INSERT INTO users 
+                                     (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
+                                     VALUES (?,?,?,?,?,?,?,?)""",
+                                  (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
+                        user_id = c.lastrowid
+                        
+                        if referrer_id:
+                            # Insert referral history – unique constraint prevents duplicate
+                            c.execute("""INSERT INTO referral_history 
+                                         (referrer_id, referred_user_id, points_earned, referral_date) 
+                                         VALUES (?,?,?,?)""",
+                                      (referrer_id, user_id, 50, join_date))
+                        
                         conn.commit()
-                    
-                    conn.close()
-                    st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
-                    st.session_state.registration_success = True
+                        st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
+                        st.session_state.registration_success = True
+                    except sqlite3.IntegrityError as e:
+                        conn.rollback()
+                        st.error(f"Registration failed due to duplicate data: {e}")
+                    except Exception as e:
+                        conn.rollback()
+                        st.error(f"Registration error: {e}")
+                    finally:
+                        conn.close()
     
     if st.session_state.registration_success:
         st.info("Please login now.")
@@ -540,6 +514,10 @@ elif st.session_state.page == "Login":
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Login", use_container_width=True)
         if submitted:
+            # Rate limiting on login attempts
+            if not rate_limit("login", mobile, limit=5, per_seconds=60):
+                st.error("Too many login attempts. Please wait.")
+                st.stop()
             conn = get_db_connection()
             c = conn.cursor()
             c.execute("SELECT * FROM users WHERE mobile=?", (mobile,))
@@ -569,7 +547,6 @@ elif st.session_state.page == "Dashboard":
     if user:
         name, mobile, code, points = user
         discount = min(points, 500)
-        # Use current host for dynamic referral link
         host = st.query_params.get("host", "alimobile-referral.streamlit.app")
         referral_link = f"https://{host}/?ref={code}"
         total_clicks, total_conversions, conv_rate = get_click_stats(st.session_state.user_id)
@@ -591,20 +568,41 @@ elif st.session_state.page == "Dashboard":
         for idx, (platform, url) in enumerate(urls.items()):
             with cols[idx]:
                 st.markdown(f'<a href="{url}" target="_blank" class="social-share-btn {platform}" style="display:block;">📱 {platform.capitalize()}</a>', unsafe_allow_html=True)
+        
+        # Atomic discount claim with retry
         if points >= 500:
             if st.button("🎁 Claim Discount", use_container_width=True):
-                conn = get_db_connection()
-                c = conn.cursor()
-                points_to_use = 500
-                discount_amount = 500.0
-                c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
-                          (st.session_state.user_id, points_to_use, discount_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
-                c.execute("UPDATE users SET points = points - ? WHERE id=?", (points_to_use, st.session_state.user_id))
-                conn.commit()
-                conn.close()
-                add_notification(st.session_state.user_id, f"🎁 You claimed 500 PKR discount! Show this at shop.")
-                st.success(f"🎉 You claimed {discount_amount} PKR discount! Show your code at shop.")
-                st.rerun()
+                if not rate_limit("claim_discount", st.session_state.user_id, limit=1, per_seconds=30):
+                    st.error("You can only claim discount once every 30 seconds. Please wait.")
+                else:
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        # Re-check points inside transaction
+                        c.execute("SELECT points FROM users WHERE id = ?", (st.session_state.user_id,))
+                        current_points = c.fetchone()[0]
+                        if current_points < 500:
+                            st.error("Insufficient points (changed before claim).")
+                            conn.rollback()
+                        else:
+                            points_to_use = 500
+                            discount_amount = 500.0
+                            c.execute("UPDATE users SET points = points - ? WHERE id = ? AND points >= ?",
+                                      (points_to_use, st.session_state.user_id, points_to_use))
+                            if c.rowcount == 0:
+                                raise Exception("Update failed - points changed")
+                            c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
+                                      (st.session_state.user_id, points_to_use, discount_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
+                            conn.commit()
+                            add_notification(st.session_state.user_id, f"🎁 You claimed 500 PKR discount! Show this at shop.")
+                            st.success(f"🎉 You claimed {discount_amount} PKR discount! Show your code at shop.")
+                            st.rerun()
+                    except Exception as e:
+                        conn.rollback()
+                        st.error(f"Claim failed: {e}. Please try again.")
+                    finally:
+                        conn.close()
         else:
             need = 500 - points
             st.info(f"Need {need} more points to claim 500 PKR discount.")
@@ -617,13 +615,18 @@ elif st.session_state.page == "Dashboard":
             st.session_state.page = "Home"
             st.rerun()
 
-elif st.session_state.page == "Leaderboard":
-    st.subheader("🏆 Top Referrers")
+@st.cache_data(ttl=10)
+def get_leaderboard():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 20")
-    top = c.fetchall()
+    data = c.fetchall()
     conn.close()
+    return data
+
+elif st.session_state.page == "Leaderboard":
+    st.subheader("🏆 Top Referrers")
+    top = get_leaderboard()
     if top:
         for i, u in enumerate(top[:10], 1):
             col1, col2, col3 = st.columns([1,3,2])
@@ -638,6 +641,9 @@ elif st.session_state.page == "Leaderboard":
             with st.expander("Show more"):
                 for i, u in enumerate(top[10:], 11):
                     st.write(f"{i}. {u[0]} - ⭐ {u[1]} points")
+        if st.button("🔄 Refresh Leaderboard"):
+            st.cache_data.clear()
+            st.rerun()
         st.caption("50 points per referral | 500 points = 500 PKR discount")
     else:
         st.info("No users yet.")
@@ -713,20 +719,31 @@ elif st.session_state.page == "RepairCategories":
         with st.expander(f"🔧 {cat[1]}"):
             st.write(cat[2])
             if st.session_state.logged_in:
-                # Prevent duplicate reporting
-                cat_key = f"{st.session_state.user_id}_{cat[0]}"
-                if cat_key not in st.session_state.repair_reported:
+                # Check if already reported (database check)
+                conn2 = get_db_connection()
+                c2 = conn2.cursor()
+                c2.execute("SELECT 1 FROM user_repair_selections WHERE user_id = ? AND category_id = ?", (st.session_state.user_id, cat[0]))
+                already = c2.fetchone() is not None
+                conn2.close()
+                if not already:
                     if st.button(f"Report this issue", key=f"cat_{cat[0]}"):
-                        conn = get_db_connection()
-                        c = conn.cursor()
-                        c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
-                                  (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                        conn.commit()
-                        conn.close()
-                        st.session_state.repair_reported.add(cat_key)
-                        st.success("Thank you! We'll contact you soon.")
+                        if not rate_limit("report_issue", st.session_state.user_id, limit=5, per_seconds=60):
+                            st.error("Too many reports. Please wait.")
+                        else:
+                            conn3 = get_db_connection()
+                            c3 = conn3.cursor()
+                            try:
+                                c3.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
+                                           (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                conn3.commit()
+                                st.success("Thank you! We'll contact you soon.")
+                            except sqlite3.IntegrityError:
+                                st.info("You have already reported this issue.")
+                            finally:
+                                conn3.close()
+                            st.rerun()
                 else:
-                    st.info("Already reported.")
+                    st.info("✅ Already reported. We'll contact you.")
     if st.session_state.logged_in:
         st.divider()
         st.subheader("Your Reported Issues")
@@ -768,8 +785,8 @@ elif st.session_state.page == "AdminPanel":
                 cols[5].write(u[5] if u[5] else "N/A")
                 with cols[6]:
                     if st.button("Reset Pwd", key=f"reset_{u[0]}"):
-                        new_pass, name = reset_user_password(u[0])
-                        st.success(f"Password for {name} reset. Notification sent to user.")
+                        name = reset_user_password(u[0])
+                        st.success(f"Password for {name} reset. User notified (no plain text).")
                         st.rerun()
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
@@ -811,41 +828,57 @@ elif st.session_state.page == "AdminPanel":
                 df = pd.read_csv(uploaded)
                 df = normalize_csv_columns(df)
                 if st.button("Merge Data"):
-                    added = 0
-                    skipped = 0
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    for _, row in df.iterrows():
-                        mobile = str(row.get("mobile", ""))
-                        if not mobile:
-                            continue
-                        c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
-                        if not c.fetchone():
-                            new_code = generate_code()
-                            name = row.get("name", "")
-                            points = int(row.get("points", 0))
-                            # Generate random secure password
-                            temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-                            hashed = hash_password(temp_pass)
-                            c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                      (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                            added += 1
-                        else:
-                            skipped += 1
-                    conn.commit()
-                    conn.close()
-                    st.success(f"Added {added} new users. Skipped {skipped} duplicates.")
+                    # Validate columns
+                    required = ['name', 'mobile']
+                    if not all(col in df.columns for col in required):
+                        st.error("CSV must contain 'name' and 'mobile' columns")
+                    else:
+                        added = 0
+                        skipped = 0
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        for _, row in df.iterrows():
+                            mobile = str(row.get("mobile", "")).strip()
+                            if not mobile or not re.match(r'^[0-9]{10,15}$', mobile):
+                                skipped += 1
+                                continue
+                            name = str(row.get("name", ""))[:50]
+                            if not name:
+                                skipped += 1
+                                continue
+                            c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
+                            if not c.fetchone():
+                                new_code = generate_code()
+                                temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+                                hashed = hash_password(temp_pass)
+                                points = int(row.get("points", 0)) if pd.notna(row.get("points")) else 0
+                                c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
+                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                added += 1
+                            else:
+                                skipped += 1
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Added {added} new users. Skipped {skipped} invalid/duplicate.")
         
         with tab4:
             pts = st.number_input("Points to add to ALL users", min_value=0, step=50)
             if st.button("Add to All"):
-                if st.warning("Are you sure?"):
+                if not rate_limit("bulk_points", "admin", limit=1, per_seconds=10):
+                    st.error("Please wait before using bulk points again.")
+                else:
                     conn = get_db_connection()
                     c = conn.cursor()
-                    c.execute("UPDATE users SET points = points + ?", (pts,))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"Added {pts} points to all users.")
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        c.execute("UPDATE users SET points = points + ?", (pts,))
+                        conn.commit()
+                        st.success(f"Added {pts} points to all users.")
+                    except Exception as e:
+                        conn.rollback()
+                        st.error(f"Bulk update failed: {e}")
+                    finally:
+                        conn.close()
         
         with tab5:
             conn = get_db_connection()
