@@ -38,31 +38,6 @@ st.markdown("""
         margin: 0.5rem 0 0;
         font-size: 1.2rem;
     }
-    .nav-container {
-        background: rgba(255,255,255,0.2);
-        backdrop-filter: blur(10px);
-        border-radius: 50px;
-        padding: 0.5rem 1rem;
-        margin-bottom: 2rem;
-        display: flex;
-        justify-content: center;
-        gap: 1rem;
-        flex-wrap: wrap;
-    }
-    .nav-btn {
-        background: rgba(255,255,255,0.3);
-        border: none;
-        border-radius: 40px;
-        padding: 0.5rem 1.2rem;
-        font-weight: bold;
-        color: white;
-        transition: 0.3s;
-        cursor: pointer;
-    }
-    .nav-btn:hover {
-        background: rgba(255,255,255,0.6);
-        color: #1e3c72;
-    }
     .card {
         background: white;
         border-radius: 20px;
@@ -87,22 +62,6 @@ st.markdown("""
         padding: 1rem;
         text-align: center;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .btn-primary {
-        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none;
-        border-radius: 40px;
-        padding: 0.6rem 1.2rem;
-        font-weight: bold;
-        color: white;
-        transition: 0.3s;
-    }
-    .btn-primary:hover {
-        transform: scale(1.02);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    }
-    .btn-danger {
-        background: linear-gradient(45deg, #ee5a24, #d63031);
     }
     .referral-history-item, .discount-history-item {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -134,7 +93,6 @@ st.markdown("""
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
-    .copy-btn { background: #6c757d; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,16 +104,14 @@ except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
-# ========== DATABASE (NEW CONNECTION EACH TIME - NO CACHE) ==========
+# ========== DATABASE ==========
 def get_db_connection():
-    """Returns a new SQLite connection. Must be closed after use."""
     return sqlite3.connect('referral.db', check_same_thread=False)
 
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Users table
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT,
@@ -209,7 +165,7 @@ def init_db():
     
     conn.commit()
     
-    # Migrate old referred_by (text) to referred_by_id if needed
+    # Migrate old referred_by (text) to referred_by_id
     c.execute("PRAGMA table_info(users)")
     cols = [col[1] for col in c.fetchall()]
     if 'referred_by' in cols and 'referred_by_id' not in cols:
@@ -353,6 +309,8 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_code = None
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
+if 'registration_success' not in st.session_state:
+    st.session_state.registration_success = False
 
 # ========== REFERRAL TRACKING ==========
 query_params = st.query_params
@@ -410,17 +368,15 @@ if st.session_state.page == "Home":
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
-            with st.container():
-                st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
-                if st.button("➡️ Register Now", use_container_width=True):
-                    st.session_state.page = "Register"
-                    st.rerun()
+            st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
+            if st.button("➡️ Register Now", use_container_width=True):
+                st.session_state.page = "Register"
+                st.rerun()
         with col2:
-            with st.container():
-                st.markdown('<div class="card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
-                if st.button("➡️ Login", use_container_width=True):
-                    st.session_state.page = "Login"
-                    st.rerun()
+            st.markdown('<div class="card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
+            if st.button("➡️ Login", use_container_width=True):
+                st.session_state.page = "Login"
+                st.rerun()
         st.markdown("""
         <div class="card">
             <h3>📍 Our Services</h3>
@@ -466,6 +422,10 @@ elif st.session_state.page == "Register":
     if st.session_state.logged_in:
         st.success("You are already logged in.")
         st.stop()
+    
+    # Reset success flag when entering registration page
+    st.session_state.registration_success = False
+    
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
         name = st.text_input("Full Name")
@@ -474,6 +434,7 @@ elif st.session_state.page == "Register":
         confirm = st.text_input("Confirm Password", type="password")
         ref_code = st.text_input("Referral Code (optional)")
         submitted = st.form_submit_button("Register", use_container_width=True)
+        
         if submitted:
             if not name or not mobile or not password:
                 st.error("Please fill all required fields.")
@@ -515,10 +476,15 @@ elif st.session_state.page == "Register":
                         conn.commit()
                     conn.close()
                     st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
-                    st.info("Please login now.")
-                    if st.button("Go to Login"):
-                        st.session_state.page = "Login"
-                        st.rerun()
+                    st.session_state.registration_success = True
+    
+    # Place the "Go to Login" button OUTSIDE the form
+    if st.session_state.registration_success:
+        st.info("Please login now.")
+        if st.button("🔐 Go to Login", use_container_width=True):
+            st.session_state.page = "Login"
+            st.session_state.registration_success = False
+            st.rerun()
 
 elif st.session_state.page == "Login":
     if st.session_state.logged_in:
