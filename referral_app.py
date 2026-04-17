@@ -12,15 +12,68 @@ import re
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (VIBRANT & MODERN) ==========
+# ========== CUSTOM CSS (BLUE BACKGROUND, WHITE TEXT) ==========
 st.markdown("""
 <style>
-    .main {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
+    /* Main background blue */
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%);
     }
+    /* All main text white */
+    .main, .stApp, .stMarkdown, .stText, .stMetric, .stDataFrame, .stSelectbox, .stTextInput, .stNumberInput {
+        color: white !important;
+    }
+    /* Headers white */
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p {
+        color: white !important;
+    }
+    /* Cards remain white with dark text for readability */
+    .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
+        background: white !important;
+        color: #333 !important;
+    }
+    .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
+        color: #333 !important;
+    }
+    /* Gradient card stays but text white */
+    .gradient-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    .gradient-card p, .gradient-card h2 {
+        color: white !important;
+    }
+    /* Buttons */
+    .stButton button {
+        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
+        border: none;
+        color: white;
+        border-radius: 40px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+    .stButton button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    /* Sidebar (if any) - but we use top menu, so ignore */
+    /* Social share buttons */
+    .whatsapp { background: #25D366; }
+    .facebook { background: #1877F2; }
+    .twitter { background: #1DA1F2; }
+    .telegram { background: #0088cc; }
+    .social-share-btn {
+        display: inline-block;
+        padding: 8px 18px;
+        margin: 5px;
+        border-radius: 30px;
+        text-decoration: none;
+        color: white !important;
+        font-weight: bold;
+        transition: 0.3s;
+        text-align: center;
+    }
+    /* Top header */
     .top-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         padding: 1rem 2rem;
@@ -30,69 +83,15 @@ st.markdown("""
         color: white;
         text-align: center;
     }
-    .top-header h1 {
-        margin: 0;
-        font-size: 2rem;
+    /* Expander */
+    .streamlit-expanderHeader {
+        color: white !important;
     }
-    .top-header p {
-        margin: 0.5rem 0 0;
-        font-size: 1.2rem;
-    }
-    .card {
-        background: white;
-        border-radius: 20px;
-        padding: 1.5rem;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-        margin-bottom: 1.5rem;
-        transition: transform 0.2s;
-    }
-    .card:hover {
-        transform: translateY(-5px);
-    }
-    .gradient-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 20px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-    }
-    .metric-card {
+    /* Dataframe */
+    .dataframe {
         background: rgba(255,255,255,0.9);
-        border-radius: 15px;
-        padding: 1rem;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        color: #333;
     }
-    .referral-history-item, .discount-history-item {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 12px;
-        border-radius: 12px;
-        margin: 8px 0;
-        font-weight: 500;
-    }
-    .notification {
-        background: #e7f3ff;
-        border-left: 5px solid #007cba;
-        padding: 10px;
-        border-radius: 8px;
-        margin: 5px 0;
-    }
-    .social-share-btn {
-        display: inline-block;
-        padding: 8px 18px;
-        margin: 5px;
-        border-radius: 30px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-        transition: 0.3s;
-        text-align: center;
-    }
-    .whatsapp { background: #25D366; }
-    .facebook { background: #1877F2; }
-    .twitter { background: #1DA1F2; }
-    .telegram { background: #0088cc; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -112,6 +111,7 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
+    # Users table with ip_address column
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT,
@@ -120,7 +120,8 @@ def init_db():
                   referral_code TEXT UNIQUE,
                   points INTEGER DEFAULT 0,
                   referred_by_id INTEGER,
-                  join_date TEXT)''')
+                  join_date TEXT,
+                  ip_address TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,9 +166,14 @@ def init_db():
     
     conn.commit()
     
-    # Migrate old referred_by (text) to referred_by_id
+    # Add ip_address column if not exists
     c.execute("PRAGMA table_info(users)")
     cols = [col[1] for col in c.fetchall()]
+    if 'ip_address' not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN ip_address TEXT")
+        conn.commit()
+    
+    # Migrate old referred_by (text) to referred_by_id
     if 'referred_by' in cols and 'referred_by_id' not in cols:
         c.execute("ALTER TABLE users ADD COLUMN referred_by_id INTEGER")
         c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
@@ -311,6 +317,8 @@ if 'page' not in st.session_state:
     st.session_state.page = "Home"
 if 'registration_success' not in st.session_state:
     st.session_state.registration_success = False
+if 'delete_confirm' not in st.session_state:
+    st.session_state.delete_confirm = {}  # store user_id -> confirm state
 
 # ========== REFERRAL TRACKING ==========
 query_params = st.query_params
@@ -423,7 +431,6 @@ elif st.session_state.page == "Register":
         st.success("You are already logged in.")
         st.stop()
     
-    # Reset success flag when entering registration page
     st.session_state.registration_success = False
     
     with st.form("reg_form", clear_on_submit=False):
@@ -452,6 +459,8 @@ elif st.session_state.page == "Register":
                     new_code = generate_code()
                     hashed = hash_password(password)
                     referrer_id = None
+                    # Store IP address
+                    user_ip = get_real_ip()
                     if ref_code:
                         c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
                         ref_user = c.fetchone()
@@ -466,8 +475,8 @@ elif st.session_state.page == "Register":
                         else:
                             st.warning("Invalid referral code.")
                     join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
-                              (name, mobile, hashed, new_code, 0, referrer_id, join_date))
+                    c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) VALUES (?,?,?,?,?,?,?,?)",
+                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
                     user_id = c.lastrowid
                     conn.commit()
                     if referrer_id:
@@ -478,7 +487,6 @@ elif st.session_state.page == "Register":
                     st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
                     st.session_state.registration_success = True
     
-    # Place the "Go to Login" button OUTSIDE the form
     if st.session_state.registration_success:
         st.info("Please login now.")
         if st.button("🔐 Go to Login", use_container_width=True):
@@ -693,38 +701,59 @@ elif st.session_state.page == "AdminPanel":
             conn = get_db_connection()
             c = conn.cursor()
             if search:
-                c.execute("SELECT id, name, mobile, referral_code, points FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
+                c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
             else:
-                c.execute("SELECT id, name, mobile, referral_code, points FROM users ORDER BY points DESC")
+                c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users ORDER BY points DESC")
             users = c.fetchall()
             conn.close()
             for u in users:
-                cols = st.columns([1,2,2,1,1,1,2])
+                cols = st.columns([1,2,2,1,1,1,1,2])
+                # id, name, mobile, referral_code, points, ip, actions
                 cols[0].write(u[0])
                 cols[1].write(u[1])
                 cols[2].write(u[2])
                 cols[3].write(u[3])
                 cols[4].write(f"⭐ {u[4]}")
-                with cols[5]:
+                cols[5].write(u[5] if u[5] else "N/A")
+                # Reset password button
+                with cols[6]:
                     if st.button("Reset Pwd", key=f"reset_{u[0]}"):
                         new_pass = reset_user_password(u[0])
                         st.success(f"New password for {u[1]}: {new_pass}")
                         st.rerun()
-                with cols[6]:
-                    if st.button("❌ Delete", key=f"del_{u[0]}"):
-                        if st.checkbox(f"Confirm delete {u[1]}?", key=f"confirm_{u[0]}"):
-                            delete_user_and_related(u[0])
-                            st.success(f"User {u[1]} deleted.")
+                # Delete button with confirmation using session state
+                with cols[7]:
+                    # Use a unique key for delete button
+                    delete_key = f"del_{u[0]}"
+                    if delete_key not in st.session_state.delete_confirm:
+                        st.session_state.delete_confirm[delete_key] = False
+                    if not st.session_state.delete_confirm[delete_key]:
+                        if st.button("❌ Delete", key=delete_key):
+                            st.session_state.delete_confirm[delete_key] = True
                             st.rerun()
+                    else:
+                        st.warning(f"Confirm delete {u[1]}?")
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            if st.button("✅ Yes", key=f"confirm_yes_{u[0]}"):
+                                delete_user_and_related(u[0])
+                                st.success(f"User {u[1]} deleted.")
+                                # Reset confirmation state
+                                st.session_state.delete_confirm[delete_key] = False
+                                st.rerun()
+                        with col_b:
+                            if st.button("❌ No", key=f"confirm_no_{u[0]}"):
+                                st.session_state.delete_confirm[delete_key] = False
+                                st.rerun()
                 st.divider()
         with tab2:
             conn = get_db_connection()
             c = conn.cursor()
-            c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date FROM users")
+            c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date, ip_address FROM users")
             data = c.fetchall()
             conn.close()
             if data:
-                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date"])
+                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address"])
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
         with tab3:
