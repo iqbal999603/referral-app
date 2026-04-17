@@ -377,12 +377,12 @@ if st.session_state.page == "Home":
         col1, col2 = st.columns(2)
         with col1:
             st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
-            if st.button("➡️ Register Now", key="home_register_btn", use_container_width=True):
+            if st.button("➡️ Register Now", use_container_width=True):
                 st.session_state.page = "Register"
                 st.rerun()
         with col2:
             st.markdown('<div class="card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
-            if st.button("➡️ Login", key="home_login_btn", use_container_width=True):
+            if st.button("➡️ Login", use_container_width=True):
                 st.session_state.page = "Login"
                 st.rerun()
         st.markdown("""
@@ -411,18 +411,18 @@ if st.session_state.page == "Home":
             discount = points * 1
             st.markdown(f'<div class="metric-card"><h3>⭐ Your Points: {points}</h3><h4>💰 Discount Available: {discount} PKR</h4></div>', unsafe_allow_html=True)
             st.info(f"🔑 Your Referral Code: **{code}**")
-            if st.button("📋 Go to My Dashboard", key="home_dashboard_btn", use_container_width=True):
+            if st.button("📋 Go to My Dashboard", use_container_width=True):
                 st.session_state.page = "Dashboard"
                 st.rerun()
         st.markdown("---")
         st.markdown("### 📢 Quick Actions")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("📤 Share Referral Link", key="home_share_btn", use_container_width=True):
+            if st.button("📤 Share Referral Link", use_container_width=True):
                 st.session_state.page = "Dashboard"
                 st.rerun()
         with col2:
-            if st.button("🏆 View Leaderboard", key="home_leaderboard_btn", use_container_width=True):
+            if st.button("🏆 View Leaderboard", use_container_width=True):
                 st.session_state.page = "Leaderboard"
                 st.rerun()
 
