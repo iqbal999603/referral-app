@@ -15,35 +15,34 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== CUSTOM CSS (IMPROVED) ==========
 st.markdown("""
 <style>
-    /* Main background blue */
     .stApp {
         background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%);
     }
-    /* All main text white */
-    .main, .stApp, .stMarkdown, .stText, .stMetric, .stDataFrame, .stSelectbox, .stTextInput, .stNumberInput {
-        color: white;
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label {
+        color: white !important;
     }
-    /* Headers white */
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p {
-        color: white;
+    .stSelectbox div[data-baseweb="select"] > div {
+        color: white !important;
     }
-    /* Cards remain white with dark text for readability */
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
         background: white;
         color: #333;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
     }
     .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
-        color: #333;
+        color: #333 !important;
     }
-    /* Gradient card stays but text white */
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
+        padding: 20px;
+        border-radius: 15px;
     }
     .gradient-card p, .gradient-card h2 {
-        color: white;
+        color: white !important;
     }
-    /* Buttons */
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b);
         border: none;
@@ -56,7 +55,6 @@ st.markdown("""
         transform: scale(1.02);
         box-shadow: 0 5px 15px rgba(0,0,0,0.2);
     }
-    /* Social share buttons */
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
@@ -72,7 +70,6 @@ st.markdown("""
         transition: 0.3s;
         text-align: center;
     }
-    /* Top header */
     .top-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         padding: 1rem 2rem;
@@ -82,16 +79,9 @@ st.markdown("""
         color: white;
         text-align: center;
     }
-    /* Expander */
     .streamlit-expanderHeader {
-        color: white;
+        color: white !important;
     }
-    /* Dataframe */
-    .dataframe {
-        background: rgba(255,255,255,0.9);
-        color: #333;
-    }
-    /* Notification item */
     .notification {
         background: #f1f9ff;
         padding: 10px;
@@ -100,7 +90,6 @@ st.markdown("""
         border-left: 5px solid #4CAF50;
         color: #333;
     }
-    /* Referral & discount history items */
     .referral-history-item, .discount-history-item {
         background: white;
         padding: 10px;
@@ -123,14 +112,13 @@ except:
 # ========== DATABASE ==========
 def get_db_connection():
     conn = sqlite3.connect('referral.db', check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")  # Prevent database lock issues
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Users table
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT,
@@ -243,32 +231,39 @@ def add_notification(user_id, message):
 def get_notifications(user_id):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC", (user_id,))
+    c.execute("SELECT id, message FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC", (user_id,))
     notifs = c.fetchall()
     conn.close()
     return notifs
 
-def mark_notification_read(notif_id):
+def mark_notifications_read(user_id, notif_ids):
+    if not notif_ids:
+        return
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("UPDATE notifications SET is_read = 1 WHERE id = ?", (notif_id,))
+    placeholders = ','.join(['?'] * len(notif_ids))
+    c.execute(f"UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id IN ({placeholders})", [user_id] + notif_ids)
     conn.commit()
     conn.close()
 
 def get_real_ip():
     try:
-        # Try newer Streamlit method first
+        # Try to get from Streamlit's request headers if available
         if hasattr(st, 'request') and hasattr(st.request, 'headers'):
             forwarded = st.request.headers.get('X-Forwarded-For')
             if forwarded:
                 return forwarded.split(',')[0].strip()
         # Fallback to external service
-        ip = requests.get('https://api.ipify.org', timeout=2).text
-        return ip
+        ip = requests.get('https://api.ipify.org', timeout=2).text.strip()
+        if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+            return ip
+        return "unknown"
     except:
-        return "0.0.0.0"
+        return "unknown"
 
 def track_referral_click(referral_code, ip_address):
+    if ip_address == "unknown":
+        return  # Skip tracking if IP unknown
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE referral_code = ?", (referral_code,))
@@ -293,11 +288,12 @@ def get_click_stats(user_id):
 def get_social_share_urls(referral_link, referral_code, user_name):
     msg = f"📱 Ali Mobile Repair - Referral Program!\n\nMy referral code: {referral_code}\nClick to register: {referral_link}\n\n50 points per referral! 500 points = 500 PKR discount!"
     encoded = urllib.parse.quote(msg)
+    encoded_link = urllib.parse.quote(referral_link)
     return {
         "whatsapp": f"https://wa.me/?text={encoded}",
-        "facebook": f"https://www.facebook.com/sharer/sharer.php?u={urllib.parse.quote(referral_link)}&quote={encoded}",
-        "twitter": f"https://twitter.com/intent/tweet?text={encoded}&url={urllib.parse.quote(referral_link)}",
-        "telegram": f"https://t.me/share/url?url={urllib.parse.quote(referral_link)}&text={encoded}",
+        "facebook": f"https://www.facebook.com/sharer/sharer.php?u={encoded_link}",
+        "twitter": f"https://twitter.com/intent/tweet?text={encoded}",
+        "telegram": f"https://t.me/share/url?url={encoded_link}&text={encoded}",
     }
 
 def normalize_csv_columns(df):
@@ -318,14 +314,18 @@ def delete_user_and_related(user_id):
     conn.close()
 
 def reset_user_password(user_id):
-    new_pass = ''.join(random.choices(string.digits, k=6))
+    new_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
     hashed = hash_password(new_pass)
     conn = get_db_connection()
     c = conn.cursor()
+    c.execute("SELECT name FROM users WHERE id = ?", (user_id,))
+    name = c.fetchone()[0]
     c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
     conn.commit()
     conn.close()
-    return new_pass
+    # Notify user (optional, could be implemented via notification system)
+    add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
+    return new_pass, name
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -338,8 +338,8 @@ if 'page' not in st.session_state:
     st.session_state.page = "Home"
 if 'registration_success' not in st.session_state:
     st.session_state.registration_success = False
-if 'delete_confirm' not in st.session_state:
-    st.session_state.delete_confirm = {}  # store user_id -> confirm state
+if 'repair_reported' not in st.session_state:
+    st.session_state.repair_reported = set()  # track reported categories
 
 # ========== REFERRAL TRACKING ==========
 query_params = st.query_params
@@ -386,10 +386,11 @@ st.session_state.page = page_map.get(selected_page, "Home")
 if st.session_state.logged_in:
     notifs = get_notifications(st.session_state.user_id)
     if notifs:
+        notif_ids = [n[0] for n in notifs]
         with st.expander(f"🔔 You have {len(notifs)} new notification(s)"):
             for n in notifs:
-                st.markdown(f'<div class="notification">📢 {n[2]}</div>', unsafe_allow_html=True)
-                mark_notification_read(n[0])
+                st.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
+        mark_notifications_read(st.session_state.user_id, notif_ids)
 
 # ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
@@ -429,7 +430,7 @@ if st.session_state.page == "Home":
         conn.close()
         if user_data:
             points, code = user_data
-            discount = points * 1
+            discount = min(points, 500)  # Show up to 500 PKR discount available
             st.markdown(f'<div class="metric-card"><h3>⭐ Your Points: {points}</h3><h4>💰 Discount Available: {discount} PKR</h4></div>', unsafe_allow_html=True)
             st.info(f"🔑 Your Referral Code: **{code}**")
             if st.button("📋 Go to My Dashboard", use_container_width=True):
@@ -490,15 +491,14 @@ elif st.session_state.page == "Register":
                             # Add 50 points to referrer
                             c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
                             conn.commit()
-                            # Mark the most recent click from this IP as converted
-                            c.execute("""UPDATE referral_clicks 
-                                         SET is_converted = 1 
-                                         WHERE referral_code = ? 
-                                         AND ip_address = ? 
-                                         AND is_converted = 0 
-                                         ORDER BY clicked_at DESC LIMIT 1""", 
-                                      (ref_code, user_ip))
+                            
+                            # Insert a new click record as converted directly
+                            c.execute("""INSERT INTO referral_clicks 
+                                         (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
+                                         VALUES (?,?,?,?,?)""",
+                                      (ref_code, referrer_id, user_ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 1))
                             conn.commit()
+                            
                             add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
                             st.success("Referrer got 50 points!")
                         else:
@@ -568,8 +568,10 @@ elif st.session_state.page == "Dashboard":
     conn.close()
     if user:
         name, mobile, code, points = user
-        discount = points * 1
-        referral_link = f"https://alimobile-referral.streamlit.app/?ref={code}"
+        discount = min(points, 500)
+        # Use current host for dynamic referral link
+        host = st.query_params.get("host", "alimobile-referral.streamlit.app")
+        referral_link = f"https://{host}/?ref={code}"
         total_clicks, total_conversions, conv_rate = get_click_stats(st.session_state.user_id)
         col1, col2 = st.columns(2)
         with col1:
@@ -578,7 +580,7 @@ elif st.session_state.page == "Dashboard":
             st.metric("⭐ Points", points)
         with col2:
             st.metric("🔑 Referral Code", code)
-            st.metric("💰 Discount", f"{discount} PKR")
+            st.metric("💰 Discount Available", f"{discount} PKR")
             st.metric("📈 Conversion Rate", f"{conv_rate:.1f}%")
         st.markdown("---")
         st.subheader("📤 Your Referral Link")
@@ -593,7 +595,6 @@ elif st.session_state.page == "Dashboard":
             if st.button("🎁 Claim Discount", use_container_width=True):
                 conn = get_db_connection()
                 c = conn.cursor()
-                # Only deduct 500 points, keep the rest
                 points_to_use = 500
                 discount_amount = 500.0
                 c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
@@ -601,11 +602,12 @@ elif st.session_state.page == "Dashboard":
                 c.execute("UPDATE users SET points = points - ? WHERE id=?", (points_to_use, st.session_state.user_id))
                 conn.commit()
                 conn.close()
+                add_notification(st.session_state.user_id, f"🎁 You claimed 500 PKR discount! Show this at shop.")
                 st.success(f"🎉 You claimed {discount_amount} PKR discount! Show your code at shop.")
                 st.rerun()
         else:
             need = 500 - points
-            st.info(f"Need {need} more points (that's {need} PKR discount remaining).")
+            st.info(f"Need {need} more points to claim 500 PKR discount.")
         if st.button("🚪 Logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.user_id = None
@@ -619,11 +621,11 @@ elif st.session_state.page == "Leaderboard":
     st.subheader("🏆 Top Referrers")
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 10")
+    c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 20")
     top = c.fetchall()
     conn.close()
     if top:
-        for i, u in enumerate(top, 1):
+        for i, u in enumerate(top[:10], 1):
             col1, col2, col3 = st.columns([1,3,2])
             with col1:
                 if i == 1: st.markdown("🏆 **1st**")
@@ -632,6 +634,10 @@ elif st.session_state.page == "Leaderboard":
                 else: st.write(f"**{i}th**")
             with col2: st.write(u[0])
             with col3: st.write(f"⭐ {u[1]} points")
+        if len(top) > 10:
+            with st.expander("Show more"):
+                for i, u in enumerate(top[10:], 11):
+                    st.write(f"{i}. {u[0]} - ⭐ {u[1]} points")
         st.caption("50 points per referral | 500 points = 500 PKR discount")
     else:
         st.info("No users yet.")
@@ -707,14 +713,20 @@ elif st.session_state.page == "RepairCategories":
         with st.expander(f"🔧 {cat[1]}"):
             st.write(cat[2])
             if st.session_state.logged_in:
-                if st.button(f"Report this issue", key=f"cat_{cat[0]}"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
-                              (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-                    conn.close()
-                    st.success("Thank you! We'll contact you soon.")
+                # Prevent duplicate reporting
+                cat_key = f"{st.session_state.user_id}_{cat[0]}"
+                if cat_key not in st.session_state.repair_reported:
+                    if st.button(f"Report this issue", key=f"cat_{cat[0]}"):
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
+                                  (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.repair_reported.add(cat_key)
+                        st.success("Thank you! We'll contact you soon.")
+                else:
+                    st.info("Already reported.")
     if st.session_state.logged_in:
         st.divider()
         st.subheader("Your Reported Issues")
@@ -736,7 +748,6 @@ elif st.session_state.page == "AdminPanel":
         st.success("Admin Panel")
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["👥 Users", "📥 Export", "📤 CSV Upload", "📈 Bulk Points", "📊 Reports", "🔧 Repair Reports"])
         
-        # Tab 1: Users
         with tab1:
             search = st.text_input("Search by name or mobile")
             conn = get_db_connection()
@@ -757,17 +768,15 @@ elif st.session_state.page == "AdminPanel":
                 cols[5].write(u[5] if u[5] else "N/A")
                 with cols[6]:
                     if st.button("Reset Pwd", key=f"reset_{u[0]}"):
-                        new_pass = reset_user_password(u[0])
-                        st.success(f"New password for {u[1]}: {new_pass}")
+                        new_pass, name = reset_user_password(u[0])
+                        st.success(f"Password for {name} reset. Notification sent to user.")
                         st.rerun()
                 with cols[7]:
-                    delete_key = f"del_{u[0]}"
-                    # Use a unique session state key per user
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
                         st.session_state[confirm_state_key] = False
                     if not st.session_state[confirm_state_key]:
-                        if st.button("❌ Delete", key=delete_key):
+                        if st.button("❌ Delete", key=f"del_{u[0]}"):
                             st.session_state[confirm_state_key] = True
                             st.rerun()
                     else:
@@ -777,7 +786,6 @@ elif st.session_state.page == "AdminPanel":
                             if st.button("✅ Yes", key=f"confirm_yes_{u[0]}"):
                                 delete_user_and_related(u[0])
                                 st.success(f"User {u[1]} deleted.")
-                                # Clean up session state
                                 del st.session_state[confirm_state_key]
                                 st.rerun()
                         with col_b:
@@ -786,7 +794,6 @@ elif st.session_state.page == "AdminPanel":
                                 st.rerun()
                 st.divider()
         
-        # Tab 2: Export
         with tab2:
             conn = get_db_connection()
             c = conn.cursor()
@@ -798,7 +805,6 @@ elif st.session_state.page == "AdminPanel":
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
         
-        # Tab 3: CSV Upload
         with tab3:
             uploaded = st.file_uploader("Upload CSV", type=["csv"])
             if uploaded:
@@ -818,7 +824,9 @@ elif st.session_state.page == "AdminPanel":
                             new_code = generate_code()
                             name = row.get("name", "")
                             points = int(row.get("points", 0))
-                            hashed = hash_password("123456")
+                            # Generate random secure password
+                            temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+                            hashed = hash_password(temp_pass)
                             c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
                                       (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                             added += 1
@@ -828,18 +836,17 @@ elif st.session_state.page == "AdminPanel":
                     conn.close()
                     st.success(f"Added {added} new users. Skipped {skipped} duplicates.")
         
-        # Tab 4: Bulk Points
         with tab4:
             pts = st.number_input("Points to add to ALL users", min_value=0, step=50)
             if st.button("Add to All"):
-                conn = get_db_connection()
-                c = conn.cursor()
-                c.execute("UPDATE users SET points = points + ?", (pts,))
-                conn.commit()
-                conn.close()
-                st.success(f"Added {pts} points to all users.")
+                if st.warning("Are you sure?"):
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    c.execute("UPDATE users SET points = points + ?", (pts,))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Added {pts} points to all users.")
         
-        # Tab 5: Reports (Clicks/Conversions)
         with tab5:
             conn = get_db_connection()
             c = conn.cursor()
@@ -852,7 +859,6 @@ elif st.session_state.page == "AdminPanel":
                 rate = (r[2]/r[1]*100) if r[1] else 0
                 st.write(f"📱 {r[0]} → Clicks: {r[1]}, Reg: {r[2]}, Rate: {rate:.1f}%")
         
-        # Tab 6: Repair Reports (NEW)
         with tab6:
             st.subheader("🔧 User Reported Issues")
             conn = get_db_connection()
