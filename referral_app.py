@@ -315,7 +315,8 @@ def reset_user_password(user_id):
         c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
         conn.commit()
     add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
-    return new_pass, name
+    return new_pass, name = reset_user_password(u[0])
+st.success(f"Password for {name} reset. New password: `{new_pass}` (share with user)")
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
