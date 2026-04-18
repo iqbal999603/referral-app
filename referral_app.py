@@ -472,7 +472,7 @@ elif st.session_state.page == "Register":
                         c.execute("""INSERT INTO users ...""", (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
                         user_id = c.lastrowid
                         conn.commit()
-               except sqlite3.IntegrityError:
+                except sqlite3.IntegrityError:
                    st.error("Mobile number already registered. Please use login.")
                    st.stop())
                 
