@@ -469,7 +469,7 @@ elif st.session_state.page == "Register":
                 try:
                     with get_db_connection() as conn:
                         c = conn.cursor()
-                        c.execute("""INSERT INTO users ...""", (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip)
+                        c.execute"""INSERT INTO users ...""", (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip)
                         user_id = c.lastrowid
                         conn.commit()
                 except sqlite3.IntegrityError:
