@@ -474,7 +474,7 @@ elif st.session_state.page == "Register":
                         conn.commit()
                 except sqlite3.IntegrityError:
                     st.error("Mobile number already registered. Please use login.")
-                    st.stop())
+                    st.stop()
                                 new_code = generate_code()
                 hashed = hash_password(password)
                 referrer_id = None
