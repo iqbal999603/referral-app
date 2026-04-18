@@ -761,7 +761,7 @@ elif st.session_state.page == "AdminPanel":
                     if st.button("Reset Pwd", key=f"reset_{u[0]}"):
                        new_pass, name = reset_user_password(u[0])
                        st.success(f"Password for {name} reset. New password: `{new_pass}` (share with user)")
-        st.rerun()
+                        st.rerun()
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
