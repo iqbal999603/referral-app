@@ -244,17 +244,7 @@ def mark_notifications_read(user_id, notif_ids):
         conn.commit()
 
 def get_real_ip():
-    try:
-        if hasattr(st, 'request') and hasattr(st.request, 'headers'):
-            forwarded = st.request.headers.get('X-Forwarded-For')
-            if forwarded:
-                return forwarded.split(',')[0].strip()
-        ip = requests.get('https://api.ipify.org', timeout=2).text.strip()
-        if ip and re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
-            return ip
-        return "unknown"
-    except:
-        return "unknown"
+    return "unknown"
 
 def track_referral_click(referral_code, ip_address):
     if ip_address == "unknown":
