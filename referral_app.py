@@ -475,7 +475,7 @@ elif st.session_state.page == "Register":
                 except sqlite3.IntegrityError:
                     st.error("Mobile number already registered. Please use login.")
                     st.stop())
-                new_code = generate_code()
+                                new_code = generate_code()
                 hashed = hash_password(password)
                 referrer_id = None
                 user_ip = get_real_ip()
@@ -488,7 +488,6 @@ elif st.session_state.page == "Register":
                         ref_user = c.fetchone()
                         if ref_user:
                             referrer_id = ref_user[0]
-                            # Update referrer points and create click record atomically
                             c.execute("UPDATE users SET points = points + 50 WHERE id=?", (referrer_id,))
                             c.execute("""INSERT INTO referral_clicks 
                                          (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
@@ -500,14 +499,19 @@ elif st.session_state.page == "Register":
                         else:
                             st.warning("Invalid referral code.")
                 
-                with get_db_connection() as conn:
-                    c = conn.cursor()
-                    c.execute("""INSERT INTO users 
-                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
-                                 VALUES (?,?,?,?,?,?,?,?)""",
-                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
-                    user_id = c.lastrowid
-                    conn.commit()
+                # Insert user with duplicate handling
+                try:
+                    with get_db_connection() as conn:
+                        c = conn.cursor()
+                        c.execute("""INSERT INTO users 
+                                     (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
+                                     VALUES (?,?,?,?,?,?,?,?)""",
+                                  (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
+                        user_id = c.lastrowid
+                        conn.commit()
+                except sqlite3.IntegrityError:
+                    st.error("Mobile number already registered. Please login.")
+                    st.stop()
                 
                 if referrer_id:
                     with get_db_connection() as conn:
