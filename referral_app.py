@@ -466,12 +466,15 @@ elif st.session_state.page == "Register":
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                with get_db_connection() as conn:
-                    c = conn.cursor()
-                    c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
-                    if c.fetchone():
-                        st.error("Mobile number already registered.")
-                        st.stop()
+                try:
+                    with get_db_connection() as conn:
+                        c = conn.cursor()
+                        c.execute("""INSERT INTO users ...""", (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
+                        user_id = c.lastrowid
+                        conn.commit()
+               except sqlite3.IntegrityError:
+                   st.error("Mobile number already registered. Please use login.")
+                   st.stop())
                 
                 new_code = generate_code()
                 hashed = hash_password(password)
