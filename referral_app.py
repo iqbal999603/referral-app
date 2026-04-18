@@ -473,8 +473,8 @@ elif st.session_state.page == "Register":
                         user_id = c.lastrowid
                         conn.commit()
                 except sqlite3.IntegrityError:
-                   st.error("Mobile number already registered. Please use login.")
-                   st.stop())
+                    st.error("Mobile number already registered. Please use login.")
+                    st.stop())
                 
                 new_code = generate_code()
                 hashed = hash_password(password)
