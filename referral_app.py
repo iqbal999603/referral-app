@@ -348,16 +348,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ========== TOP NAVIGATION ==========
-nav_cols = st.columns([1, 2, 1])
-with nav_cols[1]:
-    menu_options = ["🏠 Home", "✨ New Registration", "🔐 Login", "🏆 Leaderboard", "🔧 Repair Categories"]
-    if st.session_state.logged_in:
-        menu_options += ["🏠 My Points", "📜 Referral History", "💰 Discount History", "📊 Click Analytics"]
-    admin_secret_input = st.text_input("🔑 Admin Access", type="password", placeholder="Enter admin code", key="admin_secret_input")
-    if admin_secret_input == ADMIN_SECRET:
-        menu_options += ["👑 Admin Panel"]
-    selected_page = st.selectbox("Navigate", menu_options, index=0, label_visibility="collapsed")
-
+# Page map pehle define karo (kyunki on_change mein use hoga)
 page_map = {
     "🏠 Home": "Home",
     "✨ New Registration": "Register",
@@ -370,7 +361,31 @@ page_map = {
     "🔧 Repair Categories": "RepairCategories",
     "👑 Admin Panel": "AdminPanel"
 }
-st.session_state.page = page_map.get(selected_page, "Home")
+
+def on_nav_change():
+    st.session_state.page = page_map.get(st.session_state.nav_select, "Home")
+
+nav_cols = st.columns([1, 2, 1])
+with nav_cols[1]:
+    menu_options = ["🏠 Home", "✨ New Registration", "🔐 Login", "🏆 Leaderboard", "🔧 Repair Categories"]
+    if st.session_state.logged_in:
+        menu_options += ["🏠 My Points", "📜 Referral History", "💰 Discount History", "📊 Click Analytics"]
+    admin_secret_input = st.text_input("🔑 Admin Access", type="password", placeholder="Enter admin code", key="admin_secret_input")
+    if admin_secret_input == ADMIN_SECRET:
+        menu_options += ["👑 Admin Panel"]
+    
+    selected_page = st.selectbox(
+        "Navigate", 
+        menu_options, 
+        index=0, 
+        label_visibility="collapsed",
+        key="nav_select",
+        on_change=on_nav_change
+    )
+    
+    # Sirf tab set karo jab page pehle se set nahi hai ya Home hai
+    if 'page' not in st.session_state or st.session_state.page == "Home":
+        st.session_state.page = page_map.get(selected_page, "Home")
 
 # ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
