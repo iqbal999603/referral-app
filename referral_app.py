@@ -315,8 +315,7 @@ def reset_user_password(user_id):
         c.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
         conn.commit()
     add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
-    return new_pass, name = reset_user_password(u[0])
-st.success(f"Password for {name} reset. New password: `{new_pass}` (share with user)")
+    return new_pass, name
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -759,10 +758,10 @@ elif st.session_state.page == "AdminPanel":
                 cols[4].write(f"⭐ {u[4]}")
                 cols[5].write(u[5] if u[5] else "N/A")
                 with cols[6]:
-                    if st.button("Reset Pwd", key=f"reset_{u[0]}"):
-                        new_pass, name = reset_user_password(u[0])
-                        st.success(f"Password for {name} reset. Notification sent to user.")
-                        st.rerun()
+    if st.button("Reset Pwd", key=f"reset_{u[0]}"):
+        new_pass, name = reset_user_password(u[0])
+        st.success(f"Password for {name} reset. New password: `{new_pass}` (share with user)")
+        st.rerun()
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
