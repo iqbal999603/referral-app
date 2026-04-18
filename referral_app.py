@@ -475,7 +475,7 @@ elif st.session_state.page == "Register":
                 except sqlite3.IntegrityError:
                     st.error("Mobile number already registered. Please use login.")
                     st.stop()
-    new_code = generate_code()
+                new_code = generate_code()
                 hashed = hash_password(password)
                 referrer_id = None
                 user_ip = get_real_ip()
