@@ -111,7 +111,7 @@ elif st.session_state.page == "Register":
                                  (name, mobile, hash_password(pwd), code, 0, datetime.now()))
                 st.success(f"Account created. Code: {code}")
             except:
-                st.error("User exists")
+                st.error(f"Error: {e}")
 
 # ========== LOGIN ==========
 elif st.session_state.page == "Login":
