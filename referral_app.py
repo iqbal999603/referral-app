@@ -600,7 +600,7 @@ elif st.session_state.page == "ClickAnalytics":
     col2.metric("✅ Registrations", total_conversions)
     col3.metric("📈 Conversion Rate", f"{conv_rate:.1f}%")
     st.divider()
-    st.subheader("Recent Clicks")
+    st.subheader("Recent Clicks with Date & Time")
     with get_db_connection() as conn:
         c = conn.cursor()
         c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id = ? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
@@ -608,7 +608,7 @@ elif st.session_state.page == "ClickAnalytics":
     if recent:
         for r in recent:
             status = "✅ Converted" if r[1] else "⏳ Pending"
-            st.write(f"📅 {r[0][:16]} → {status}")
+            st.write(f"📅 {r[0]} → {status}")
     else:
         st.info("No clicks yet.")
 
@@ -659,19 +659,20 @@ elif st.session_state.page == "AdminPanel":
             with get_db_connection() as conn:
                 c = conn.cursor()
                 if search:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
+                    c.execute("SELECT id, name, mobile, referral_code, points, join_date, ip_address FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
                 else:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users ORDER BY points DESC")
+                    c.execute("SELECT id, name, mobile, referral_code, points, join_date, ip_address FROM users ORDER BY points DESC")
                 users = c.fetchall()
             for u in users:
-                cols = st.columns([1,2,2,1,1,1,1,2])
+                cols = st.columns([1,2,2,1,1,2,1,2])
                 cols[0].write(u[0])
                 cols[1].write(u[1])
                 cols[2].write(u[2])
                 cols[3].write(u[3])
                 cols[4].write(f"⭐ {u[4]}")
-                cols[5].write(u[5] if u[5] else "N/A")
-                with cols[6]:
+                cols[5].write(u[5][:10] if u[5] else "N/A")  # Show date only
+                cols[6].write(u[6] if u[6] else "N/A")
+                with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
                         st.session_state[confirm_state_key] = False
@@ -706,7 +707,7 @@ elif st.session_state.page == "AdminPanel":
             if data:
                 df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address"])
                 csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+                st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", "text/csv")
         
         with tab3:
             uploaded = st.file_uploader("Upload CSV", type=["csv"])
@@ -729,8 +730,9 @@ elif st.session_state.page == "AdminPanel":
                                 points = int(row.get("points", 0))
                                 temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
                                 hashed = hash_password(temp_pass)
+                                join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                          (name, mobile, hashed, new_code, points, join_date))
                                 added += 1
                             else:
                                 skipped += 1
@@ -747,15 +749,20 @@ elif st.session_state.page == "AdminPanel":
                 st.success(f"Added {pts} points to all users.")
         
         with tab5:
+            st.subheader("📊 Referral Clicks & Conversions with Timestamps")
             with get_db_connection() as conn:
                 c = conn.cursor()
-                c.execute("""SELECT u.name, COUNT(rc.id) as clicks, SUM(rc.is_converted) as conv
-                             FROM users u LEFT JOIN referral_clicks rc ON u.id = rc.referrer_id
-                             GROUP BY u.id ORDER BY clicks DESC""")
-                rep = c.fetchall()
-            for r in rep:
-                rate = (r[2]/r[1]*100) if r[1] else 0
-                st.write(f"📱 {r[0]} → Clicks: {r[1]}, Reg: {r[2]}, Rate: {rate:.1f}%")
+                c.execute("""SELECT u.name, rc.clicked_at, rc.is_converted 
+                             FROM referral_clicks rc 
+                             JOIN users u ON rc.referrer_id = u.id 
+                             ORDER BY rc.clicked_at DESC""")
+                clicks = c.fetchall()
+            if clicks:
+                for c in clicks:
+                    status = "✅ Converted" if c[2] else "⏳ Pending"
+                    st.write(f"📱 {c[0]} → {c[1]} → {status}")
+            else:
+                st.info("No referral clicks yet.")
         
         with tab6:
             st.subheader("🔧 User Reported Issues")
