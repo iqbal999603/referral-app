@@ -6,14 +6,11 @@ import string
 from datetime import datetime
 import pandas as pd
 import urllib.parse
-import requests
-import re
-import json
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (same as before) ==========
+# ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
@@ -66,7 +63,7 @@ except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
-# ========== DATABASE (with device_fingerprint column) ==========
+# ========== DATABASE ==========
 def get_db_connection():
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -87,15 +84,13 @@ def init_db():
                       referred_by_id INTEGER,
                       join_date TEXT,
                       ip_address TEXT,
-                      device_fingerprint TEXT UNIQUE)''')  # Added unique fingerprint column
-        
+                      device_fingerprint TEXT UNIQUE)''')
         c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       referrer_id INTEGER,
                       referred_user_id INTEGER,
                       points_earned INTEGER,
                       referral_date TEXT)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
@@ -103,25 +98,21 @@ def init_db():
                       discount_amount REAL,
                       claim_date TEXT,
                       status TEXT)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS notifications
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
                       message TEXT,
                       is_read INTEGER DEFAULT 0,
                       created_at TEXT)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS repair_categories
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       category_name TEXT,
                       description TEXT)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS user_repair_selections
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
                       category_id INTEGER,
                       selection_date TEXT)''')
-        
         c.execute('''CREATE TABLE IF NOT EXISTS referral_clicks
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       referral_code TEXT,
@@ -129,22 +120,16 @@ def init_db():
                       ip_address TEXT,
                       clicked_at TEXT,
                       is_converted INTEGER DEFAULT 0)''')
-        
         conn.commit()
         
-        # Add device_fingerprint column if not exists
         c.execute("PRAGMA table_info(users)")
         cols = [col[1] for col in c.fetchall()]
         if 'device_fingerprint' not in cols:
             c.execute("ALTER TABLE users ADD COLUMN device_fingerprint TEXT")
             conn.commit()
-            # Make it unique if possible (SQLite doesn't allow adding unique constraint via ALTER, but we handle in code)
-        
         if 'ip_address' not in cols:
             c.execute("ALTER TABLE users ADD COLUMN ip_address TEXT")
             conn.commit()
-        
-        # Migrate old referred_by (text) to referred_by_id
         if 'referred_by' in cols and 'referred_by_id' not in cols:
             c.execute("ALTER TABLE users ADD COLUMN referred_by_id INTEGER")
             c.execute("SELECT id, referred_by FROM users WHERE referred_by IS NOT NULL AND referred_by != ''")
@@ -156,7 +141,6 @@ def init_db():
                     c.execute("UPDATE users SET referred_by_id = ? WHERE id = ?", (ref_user[0], uid))
             conn.commit()
         
-        # Add repair categories if empty
         c.execute("SELECT COUNT(*) FROM repair_categories")
         if c.fetchone()[0] == 0:
             categories = [
@@ -175,42 +159,65 @@ def init_db():
 
 init_db()
 
-# ========== DEVICE FINGERPRINT HELPER ==========
+# ========== DEVICE FINGERPRINT (localStorage based, no infinite reload) ==========
 def get_device_fingerprint():
-    """Get or generate device fingerprint using ThumbmarkJS (called from frontend)"""
-    # Session state mein agar fingerprint pehle se hai to wapas karo
+    """Returns a persistent device fingerprint using localStorage."""
     if "_device_fp" in st.session_state:
         return st.session_state._device_fp
     
-    # Nahi hai to JavaScript se fetch karo
+    # JavaScript to read/write localStorage without auto-reload
     fingerprint_html = """
-    <script src="https://cdn.jsdelivr.net/npm/@thumbmarkjs/thumbmarkjs/dist/thumbmark.umd.js"></script>
+    <div id="fp-container" style="display:none;"></div>
     <script>
-        async function getFingerprint() {
-            try {
-                const fp = await ThumbmarkJS.getFingerprint();
-                // Send fingerprint back to Streamlit via query param (workaround)
-                const url = new URL(window.location.href);
-                url.searchParams.set('fp', fp);
-                window.history.replaceState({}, '', url);
-                // Trigger a rerun by slightly changing a param
-                window.dispatchEvent(new Event('load'));
-            } catch(e) {
-                console.error("Fingerprint error", e);
+        function getOrCreateDeviceId() {
+            let deviceId = localStorage.getItem('device_fingerprint');
+            if (!deviceId) {
+                deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+                localStorage.setItem('device_fingerprint', deviceId);
             }
+            return deviceId;
         }
-        getFingerprint();
+        const fp = getOrCreateDeviceId();
+        // Set a meta tag or hidden input with the fingerprint
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.id = 'device_fp_input';
+        input.value = fp;
+        document.body.appendChild(input);
+        // Dispatch a custom event that Streamlit can pick up via rerun? We'll use query param without reload.
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has('fp')) {
+            url.searchParams.set('fp', fp);
+            window.history.replaceState({}, '', url);
+            // Instead of reloading, we just let Streamlit see the new param on next interaction.
+            // But to make it work immediately, we do a soft rerun via Streamlit's built-in.
+            // Streamlit will automatically rerun when query params change? No, but we can force.
+            // Use window.location.reload() only once.
+            window.location.reload();
+        }
     </script>
     """
     st.markdown(fingerprint_html, unsafe_allow_html=True)
     
-    # Query params se fingerprint read karo
     query_params = st.query_params
     if "fp" in query_params:
         fp = query_params["fp"]
         st.session_state._device_fp = fp
         return fp
     return None
+
+def get_device_fingerprint_safe():
+    """User-friendly wrapper that handles missing fingerprint."""
+    fp = get_device_fingerprint()
+    if fp is None:
+        st.warning("⚠️ Device identification is loading. Please wait a moment...")
+        if st.button("🔄 Refresh Page", use_container_width=True):
+            st.rerun()
+        st.stop()
+    return fp
 
 # ========== HELPER FUNCTIONS ==========
 def generate_code():
@@ -382,6 +389,7 @@ if st.session_state.logged_in:
             for n in notifs:
                 st.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
         mark_notifications_read(st.session_state.user_id, notif_ids)
+
 # ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
@@ -445,7 +453,7 @@ elif st.session_state.page == "Register":
     st.session_state.registration_success = False
     
     # Device fingerprint check
-    device_fp = get_device_fingerprint()
+    device_fp = get_device_fingerprint_safe()
     
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
@@ -464,20 +472,13 @@ elif st.session_state.page == "Register":
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                # Check if fingerprint is available
-                if not device_fp:
-                    st.error("Unable to identify your device. Please refresh the page and try again.")
-                    st.stop()
-                
-                # Check if this device fingerprint already exists in database
+                # Check existing device or mobile
                 with get_db_connection() as conn:
                     c = conn.cursor()
                     c.execute("SELECT id FROM users WHERE device_fingerprint = ?", (device_fp,))
-                    existing_fp = c.fetchone()
-                    if existing_fp:
-                        st.error("❌ Aap is device se pehle register kar chuke hain! Har device se sirf ek account ban sakta hai. (This device already has an account.)")
+                    if c.fetchone():
+                        st.error("❌ Aap is device se pehle register kar chuke hain! Har device se sirf ek account ban sakta hai.")
                         st.stop()
-                    
                     c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
                     if c.fetchone():
                         st.error("Mobile number already registered.")
@@ -492,7 +493,7 @@ elif st.session_state.page == "Register":
                 if ref_code:
                     with get_db_connection() as conn:
                         c = conn.cursor()
-                        c.execute("SELECT id, points FROM users WHERE referral_code=?", (ref_code,))
+                        c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code,))
                         ref_user = c.fetchone()
                         if ref_user:
                             referrer_id = ref_user[0]
@@ -732,6 +733,7 @@ elif st.session_state.page == "RepairCategories":
             issues = c.fetchall()
         for iss in issues:
             st.write(f"📌 {iss[1][:10]}: {iss[0]}")
+
 elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
     if admin_pass == ADMIN_PASSWORD:
@@ -814,7 +816,6 @@ elif st.session_state.page == "AdminPanel":
                                 points = int(row.get("points", 0))
                                 temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
                                 hashed = hash_password(temp_pass)
-                                # Fingerprint not available for bulk upload, set NULL
                                 c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date, device_fingerprint) VALUES (?,?,?,?,?,?,?)",
                                           (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), None))
                                 added += 1
@@ -866,4 +867,3 @@ elif st.session_state.page == "AdminPanel":
                 st.info("No repair reports yet.")
     elif admin_pass:
         st.error("Wrong password")
-        
