@@ -19,7 +19,7 @@ st.markdown("""
         background: Light blue; color: #d3d4db; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
     .gradient-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #9ca9e6 0%, #764ba2 100%);
         color: white; padding: 20px; border-radius: 15px;
     }
     .stButton button {
