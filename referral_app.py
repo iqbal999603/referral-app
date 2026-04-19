@@ -13,18 +13,18 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
-    .stApp { background: linear-gradient(135deg, #144c99 0%, #3f7dd1 100%); }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: Light blue !important; }
+    .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: Light blue; color: #d3d4db; padding: 15px; border-radius: 10px; margin: 10px 0;
+        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
     .gradient-card {
-        background: linear-gradient(135deg, #9ca9e6 0%, #764ba2 100%);
-        color: black; padding: 20px; border-radius: 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white; padding: 20px; border-radius: 15px;
     }
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none; color: black; border-radius: 40px; font-weight: bold;
+        border: none; color: white; border-radius: 40px; font-weight: bold;
     }
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
@@ -315,7 +315,7 @@ if st.session_state.logged_in:
 # ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
-        st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join Our Referral Program and Earn Discounts on Mobile Repairs!</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
@@ -338,7 +338,7 @@ if st.session_state.page == "Home":
                 <li>📷 Camera Repair</li>
                 <li>🎧 Audio / Speaker Fix</li>
             </ul>
-            <p><strong><h2>Same Day Delivery(InshaAllah)</h2></strong></p>
+            <p><strong>Same Day Service | Warranty on Repairs</strong></p>
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -786,7 +786,7 @@ elif st.session_state.page == "AdminPanel":
             if reports:
                 for r in reports:
                     st.markdown(f"""
-                    <div style="background:black; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
+                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
                         <strong>{r[0]}</strong> ({r[1]})<br>
                         Issue: {r[2]}<br>
                         Date: {r[3][:16]}
