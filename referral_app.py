@@ -719,10 +719,11 @@ elif st.session_state.page == "RepairCategories":
                          JOIN repair_categories rc ON us.category_id = rc.id 
                          WHERE us.user_id = ? 
                          ORDER BY us.selection_date DESC LIMIT 5""", (st.session_state.user_id,))
-            issues = c.fetchall()
+                   issues = c.fetchall()
         for iss in issues:
             st.write(f"📌 {iss[1][:10]}: {iss[0]}")
-    elif st.session_state.page == "AdminPanel":
+
+elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
     if admin_pass == ADMIN_PASSWORD:
         st.success("Admin Panel")
