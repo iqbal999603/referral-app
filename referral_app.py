@@ -338,7 +338,7 @@ if st.session_state.page == "Home":
                 <li>📷 Camera Repair</li>
                 <li>🎧 Audio / Speaker Fix</li>
             </ul>
-            <p><strong>Same Day Service | Warranty on Repairs</strong></p>
+            <p><strong>Same Day Service</strong></p>
         </div>
         """, unsafe_allow_html=True)
     else:
