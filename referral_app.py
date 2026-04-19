@@ -10,7 +10,7 @@ import urllib.parse
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS (same as before - shortened for space) ==========
+# ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
@@ -69,8 +69,7 @@ def init_db():
                       points INTEGER DEFAULT 0,
                       referred_by_id INTEGER,
                       join_date TEXT,
-                      ip_address TEXT,
-                      device_fingerprint TEXT)''')
+                      ip_address TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       referrer_id INTEGER,
@@ -110,9 +109,6 @@ def init_db():
         
         c.execute("PRAGMA table_info(users)")
         cols = [col[1] for col in c.fetchall()]
-        if 'device_fingerprint' not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN device_fingerprint TEXT")
-            conn.commit()
         if 'ip_address' not in cols:
             c.execute("ALTER TABLE users ADD COLUMN ip_address TEXT")
             conn.commit()
@@ -145,52 +141,7 @@ def init_db():
 
 init_db()
 
-# ========== DEVICE FINGERPRINT (AUTOMATIC - NO BUTTON) ==========
-def get_device_fingerprint():
-    """Automatically get device fingerprint with one-time reload."""
-    if "_device_fp" in st.session_state:
-        return st.session_state._device_fp
-    
-    # Check if fingerprint is in URL query param
-    qp = st.query_params
-    if "fp" in qp:
-        fp = qp["fp"]
-        st.session_state._device_fp = fp
-        # Remove fp from URL to keep it clean
-        st.query_params.clear()
-        return fp
-    
-    # No fingerprint yet: generate via JavaScript and reload once
-    st.markdown("""
-    <div style="text-align: center; padding: 50px;">
-        <h3>🔄 Identifying your device...</h3>
-        <p>Please wait, this will only take a moment.</p>
-    </div>
-    <script>
-    function getDeviceId() {
-        let id = localStorage.getItem('device_fp');
-        if (!id) {
-            id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-            localStorage.setItem('device_fp', id);
-        }
-        return id;
-    }
-    const fp = getDeviceId();
-    // Only reload if fp is not already in URL
-    if (!window.location.search.includes('fp=')) {
-        window.location.href = window.location.pathname + '?fp=' + fp;
-    }
-    </script>
-    """, unsafe_allow_html=True)
-    st.stop()
-
-def get_device_fingerprint_safe():
-    return get_device_fingerprint()
-
-# ========== HELPER FUNCTIONS (same as before - shortened) ==========
+# ========== HELPER FUNCTIONS ==========
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
@@ -361,15 +312,7 @@ if st.session_state.logged_in:
                 st.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
         mark_notifications_read(st.session_state.user_id, notif_ids)
 
-# ========== PAGE RENDER (only Register page shown, rest same as before) ==========
-# For brevity, I'll include the full Register page logic and skip others but they are same as previous.
-# Actually to save space, I'll just show the Register page part. The rest of the pages are unchanged from the previous working code.
-# But to give you a complete file, I'll include the rest in the final answer.
-
-# Since the user only reported issue with Register page fingerprint, I'll provide the full code with the fixed fingerprint.
-# I'll copy the rest of the pages from the previous working code (the one without button) and just replace the fingerprint part.
-
-# ========== PAGE RENDER CONTINUED ==========
+# ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
@@ -431,9 +374,6 @@ elif st.session_state.page == "Register":
     
     st.session_state.registration_success = False
     
-    # Get device fingerprint (automatic)
-    device_fp = get_device_fingerprint_safe()
-    
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
         name = st.text_input("Full Name")
@@ -451,13 +391,8 @@ elif st.session_state.page == "Register":
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                # Check device fingerprint and mobile uniqueness
                 with get_db_connection() as conn:
                     c = conn.cursor()
-                    c.execute("SELECT id FROM users WHERE device_fingerprint = ?", (device_fp,))
-                    if c.fetchone():
-                        st.error("❌ Aap is device se pehle register kar chuke hain! Har device se sirf ek account ban sakta hai.")
-                        st.stop()
                     c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
                     if c.fetchone():
                         st.error("Mobile number already registered.")
@@ -490,9 +425,9 @@ elif st.session_state.page == "Register":
                 with get_db_connection() as conn:
                     c = conn.cursor()
                     c.execute("""INSERT INTO users 
-                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address, device_fingerprint) 
-                                 VALUES (?,?,?,?,?,?,?,?,?)""",
-                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip, device_fp))
+                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
+                                 VALUES (?,?,?,?,?,?,?,?)""",
+                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
                     user_id = c.lastrowid
                     conn.commit()
                 
@@ -514,9 +449,6 @@ elif st.session_state.page == "Register":
             st.session_state.page = "Login"
             st.session_state.registration_success = False
             st.rerun()
-
-# ========== REST OF THE PAGES (Login, Dashboard, Leaderboard, etc.) are same as previous working code ==========
-# To keep the answer complete, I'll include them here but they are unchanged.
 
 elif st.session_state.page == "Login":
     if st.session_state.logged_in:
@@ -727,9 +659,9 @@ elif st.session_state.page == "AdminPanel":
             with get_db_connection() as conn:
                 c = conn.cursor()
                 if search:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address, device_fingerprint FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
+                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
                 else:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address, device_fingerprint FROM users ORDER BY points DESC")
+                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users ORDER BY points DESC")
                 users = c.fetchall()
             for u in users:
                 cols = st.columns([1,2,2,1,1,1,1,2])
@@ -739,8 +671,7 @@ elif st.session_state.page == "AdminPanel":
                 cols[3].write(u[3])
                 cols[4].write(f"⭐ {u[4]}")
                 cols[5].write(u[5] if u[5] else "N/A")
-                cols[6].write(u[6][:8] + "..." if u[6] else "No FP")
-                with cols[7]:
+                with cols[6]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
                         st.session_state[confirm_state_key] = False
@@ -770,10 +701,10 @@ elif st.session_state.page == "AdminPanel":
         with tab2:
             with get_db_connection() as conn:
                 c = conn.cursor()
-                c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date, ip_address, device_fingerprint FROM users")
+                c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date, ip_address FROM users")
                 data = c.fetchall()
             if data:
-                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address","Device Fingerprint"])
+                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address"])
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
         
@@ -798,8 +729,8 @@ elif st.session_state.page == "AdminPanel":
                                 points = int(row.get("points", 0))
                                 temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
                                 hashed = hash_password(temp_pass)
-                                c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date, device_fingerprint) VALUES (?,?,?,?,?,?,?)",
-                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), None))
+                                c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
+                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                                 added += 1
                             else:
                                 skipped += 1
