@@ -786,7 +786,7 @@ elif st.session_state.page == "AdminPanel":
             if reports:
                 for r in reports:
                     st.markdown(f"""
-                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
+                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#d3d4db;">
                         <strong>{r[0]}</strong> ({r[1]})<br>
                         Issue: {r[2]}<br>
                         Date: {r[3][:16]}
