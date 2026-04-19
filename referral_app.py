@@ -8,95 +8,52 @@ import pandas as pd
 import urllib.parse
 import requests
 import re
+import json
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS ==========
+# ========== CUSTOM CSS (same as before) ==========
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%);
-    }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label {
-        color: white !important;
-    }
-    .stSelectbox div[data-baseweb="select"] > div {
-        color: white !important;
-    }
+    .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
+    .stSelectbox div[data-baseweb="select"] > div { color: white !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: white;
-        color: #333;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
+        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
-    .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
-        color: #333 !important;
-    }
+    .card p, .card h3, .metric-card h3, .metric-card h4, .notification { color: #333 !important; }
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 20px;
-        border-radius: 15px;
+        color: white; padding: 20px; border-radius: 15px;
     }
-    .gradient-card p, .gradient-card h2 {
-        color: white !important;
-    }
+    .gradient-card p, .gradient-card h2 { color: white !important; }
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none;
-        color: white;
-        border-radius: 40px;
-        font-weight: bold;
-        transition: 0.3s;
+        border: none; color: white; border-radius: 40px; font-weight: bold;
     }
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    }
+    .stButton button:hover { transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
     .social-share-btn {
-        display: inline-block;
-        padding: 8px 18px;
-        margin: 5px;
-        border-radius: 30px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
-        transition: 0.3s;
-        text-align: center;
+        display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px;
+        text-decoration: none; color: white; font-weight: bold; text-align: center;
     }
     .top-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem 2rem;
-        border-radius: 20px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        color: white;
-        text-align: center;
+        padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2); color: white; text-align: center;
     }
-    .streamlit-expanderHeader {
-        color: white !important;
-    }
+    .streamlit-expanderHeader { color: white !important; }
     .notification {
-        background: #f1f9ff;
-        padding: 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        border-left: 5px solid #4CAF50;
-        color: #333;
+        background: #f1f9ff; padding: 10px; border-radius: 10px; margin: 5px 0;
+        border-left: 5px solid #4CAF50; color: #333;
     }
     .referral-history-item, .discount-history-item {
-        background: white;
-        padding: 10px;
-        border-radius: 10px;
-        margin: 5px 0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        color: #333;
+        background: white; padding: 10px; border-radius: 10px; margin: 5px 0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1); color: #333;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -109,19 +66,17 @@ except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
-# ========== DATABASE ==========
+# ========== DATABASE (with device_fingerprint column) ==========
 def get_db_connection():
-    """Create a database connection with proper timeout and WAL mode to prevent locks."""
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")  # Wait up to 5 seconds if locked
-    conn.execute("PRAGMA synchronous=NORMAL")  # Slightly faster writes
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 def init_db():
     with get_db_connection() as conn:
         c = conn.cursor()
-        
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       name TEXT,
@@ -131,7 +86,8 @@ def init_db():
                       points INTEGER DEFAULT 0,
                       referred_by_id INTEGER,
                       join_date TEXT,
-                      ip_address TEXT)''')
+                      ip_address TEXT,
+                      device_fingerprint TEXT UNIQUE)''')  # Added unique fingerprint column
         
         c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,9 +132,14 @@ def init_db():
         
         conn.commit()
         
-        # Add ip_address column if not exists
+        # Add device_fingerprint column if not exists
         c.execute("PRAGMA table_info(users)")
         cols = [col[1] for col in c.fetchall()]
+        if 'device_fingerprint' not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN device_fingerprint TEXT")
+            conn.commit()
+            # Make it unique if possible (SQLite doesn't allow adding unique constraint via ALTER, but we handle in code)
+        
         if 'ip_address' not in cols:
             c.execute("ALTER TABLE users ADD COLUMN ip_address TEXT")
             conn.commit()
@@ -213,6 +174,43 @@ def init_db():
             conn.commit()
 
 init_db()
+
+# ========== DEVICE FINGERPRINT HELPER ==========
+def get_device_fingerprint():
+    """Get or generate device fingerprint using ThumbmarkJS (called from frontend)"""
+    # Session state mein agar fingerprint pehle se hai to wapas karo
+    if "_device_fp" in st.session_state:
+        return st.session_state._device_fp
+    
+    # Nahi hai to JavaScript se fetch karo
+    fingerprint_html = """
+    <script src="https://cdn.jsdelivr.net/npm/@thumbmarkjs/thumbmarkjs/dist/thumbmark.umd.js"></script>
+    <script>
+        async function getFingerprint() {
+            try {
+                const fp = await ThumbmarkJS.getFingerprint();
+                // Send fingerprint back to Streamlit via query param (workaround)
+                const url = new URL(window.location.href);
+                url.searchParams.set('fp', fp);
+                window.history.replaceState({}, '', url);
+                // Trigger a rerun by slightly changing a param
+                window.dispatchEvent(new Event('load'));
+            } catch(e) {
+                console.error("Fingerprint error", e);
+            }
+        }
+        getFingerprint();
+    </script>
+    """
+    st.markdown(fingerprint_html, unsafe_allow_html=True)
+    
+    # Query params se fingerprint read karo
+    query_params = st.query_params
+    if "fp" in query_params:
+        fp = query_params["fp"]
+        st.session_state._device_fp = fp
+        return fp
+    return None
 
 # ========== HELPER FUNCTIONS ==========
 def generate_code():
@@ -338,7 +336,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ========== TOP NAVIGATION ==========
-# Page map pehle define karo (kyunki on_change mein use hoga)
 page_map = {
     "🏠 Home": "Home",
     "✨ New Registration": "Register",
@@ -373,7 +370,6 @@ with nav_cols[1]:
         on_change=on_nav_change
     )
     
-    # Sirf tab set karo jab page pehle se set nahi hai ya Home hai
     if 'page' not in st.session_state or st.session_state.page == "Home":
         st.session_state.page = page_map.get(selected_page, "Home")
 
@@ -386,7 +382,7 @@ if st.session_state.logged_in:
             for n in notifs:
                 st.markdown(f'<div class="notification">📢 {n[1]}</div>', unsafe_allow_html=True)
         mark_notifications_read(st.session_state.user_id, notif_ids)
-        # ========== PAGE RENDER ==========
+# ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
@@ -448,6 +444,9 @@ elif st.session_state.page == "Register":
     
     st.session_state.registration_success = False
     
+    # Device fingerprint check
+    device_fp = get_device_fingerprint()
+    
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
         name = st.text_input("Full Name")
@@ -465,8 +464,20 @@ elif st.session_state.page == "Register":
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
+                # Check if fingerprint is available
+                if not device_fp:
+                    st.error("Unable to identify your device. Please refresh the page and try again.")
+                    st.stop()
+                
+                # Check if this device fingerprint already exists in database
                 with get_db_connection() as conn:
                     c = conn.cursor()
+                    c.execute("SELECT id FROM users WHERE device_fingerprint = ?", (device_fp,))
+                    existing_fp = c.fetchone()
+                    if existing_fp:
+                        st.error("❌ Aap is device se pehle register kar chuke hain! Har device se sirf ek account ban sakta hai. (This device already has an account.)")
+                        st.stop()
+                    
                     c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
                     if c.fetchone():
                         st.error("Mobile number already registered.")
@@ -485,7 +496,6 @@ elif st.session_state.page == "Register":
                         ref_user = c.fetchone()
                         if ref_user:
                             referrer_id = ref_user[0]
-                            # Update referrer points and create click record atomically
                             c.execute("UPDATE users SET points = points + 50 WHERE id=?", (referrer_id,))
                             c.execute("""INSERT INTO referral_clicks 
                                          (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
@@ -500,9 +510,9 @@ elif st.session_state.page == "Register":
                 with get_db_connection() as conn:
                     c = conn.cursor()
                     c.execute("""INSERT INTO users 
-                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address) 
-                                 VALUES (?,?,?,?,?,?,?,?)""",
-                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip))
+                                 (name, mobile, password, referral_code, points, referred_by_id, join_date, ip_address, device_fingerprint) 
+                                 VALUES (?,?,?,?,?,?,?,?,?)""",
+                              (name, mobile, hashed, new_code, 0, referrer_id, join_date, user_ip, device_fp))
                     user_id = c.lastrowid
                     conn.commit()
                 
@@ -720,9 +730,8 @@ elif st.session_state.page == "RepairCategories":
                          WHERE us.user_id = ? 
                          ORDER BY us.selection_date DESC LIMIT 5""", (st.session_state.user_id,))
             issues = c.fetchall()
-            for iss in issues:
-                st.write(f"📌 {iss[1][:10]}: {iss[0]}")
-
+        for iss in issues:
+            st.write(f"📌 {iss[1][:10]}: {iss[0]}")
 elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
     if admin_pass == ADMIN_PASSWORD:
@@ -730,15 +739,13 @@ elif st.session_state.page == "AdminPanel":
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["👥 Users", "📥 Export", "📤 CSV Upload", "📈 Bulk Points", "📊 Reports", "🔧 Repair Reports"])
         
         with tab1:
-            # yahan se aapka existing AdminPanel ka code aayega
-            # ... (main poora code pehle de chuka hoon)
             search = st.text_input("Search by name or mobile")
             with get_db_connection() as conn:
                 c = conn.cursor()
                 if search:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
+                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address, device_fingerprint FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC", (f'%{search}%', f'%{search}%'))
                 else:
-                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address FROM users ORDER BY points DESC")
+                    c.execute("SELECT id, name, mobile, referral_code, points, ip_address, device_fingerprint FROM users ORDER BY points DESC")
                 users = c.fetchall()
             for u in users:
                 cols = st.columns([1,2,2,1,1,1,1,2])
@@ -748,16 +755,16 @@ elif st.session_state.page == "AdminPanel":
                 cols[3].write(u[3])
                 cols[4].write(f"⭐ {u[4]}")
                 cols[5].write(u[5] if u[5] else "N/A")
-                with cols[6]:
-                    if st.button("Reset Pwd", key=f"reset_{u[0]}"):
-                       new_pass, name = reset_user_password(u[0])
-                       st.success(f"Password for {name} reset. New password: `{new_pass}` (share with user)")
-                       st.rerun()
+                cols[6].write(u[6][:8] + "..." if u[6] else "No FP")
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
                     if confirm_state_key not in st.session_state:
                         st.session_state[confirm_state_key] = False
                     if not st.session_state[confirm_state_key]:
+                        if st.button("Reset Pwd", key=f"reset_{u[0]}"):
+                            new_pass, name = reset_user_password(u[0])
+                            st.success(f"Password for {name} reset. New password: `{new_pass}`")
+                            st.rerun()
                         if st.button("❌ Delete", key=f"del_{u[0]}"):
                             st.session_state[confirm_state_key] = True
                             st.rerun()
@@ -779,10 +786,10 @@ elif st.session_state.page == "AdminPanel":
         with tab2:
             with get_db_connection() as conn:
                 c = conn.cursor()
-                c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date, ip_address FROM users")
+                c.execute("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date, ip_address, device_fingerprint FROM users")
                 data = c.fetchall()
             if data:
-                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address"])
+                df = pd.DataFrame(data, columns=["ID","Name","Mobile","Referral Code","Points","Referred By ID","Join Date","IP Address","Device Fingerprint"])
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download CSV", csv, f"users_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
         
@@ -807,8 +814,9 @@ elif st.session_state.page == "AdminPanel":
                                 points = int(row.get("points", 0))
                                 temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
                                 hashed = hash_password(temp_pass)
-                                c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                # Fingerprint not available for bulk upload, set NULL
+                                c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date, device_fingerprint) VALUES (?,?,?,?,?,?,?)",
+                                          (name, mobile, hashed, new_code, points, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), None))
                                 added += 1
                             else:
                                 skipped += 1
@@ -858,3 +866,4 @@ elif st.session_state.page == "AdminPanel":
                 st.info("No repair reports yet.")
     elif admin_pass:
         st.error("Wrong password")
+        
