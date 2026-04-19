@@ -315,7 +315,7 @@ if st.session_state.logged_in:
 # ========== PAGE RENDER ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
-        st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join Our Referral Program and Earn Discounts on Mobile Repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
