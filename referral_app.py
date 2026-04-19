@@ -13,7 +13,7 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
-    .stApp { background: linear-gradient(135deg, #226ee3 0%, #3f7dd1 100%); }
+    .stApp { background: linear-gradient(135deg, #144c99 0%, #3f7dd1 100%); }
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: Light blue !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
         background: Light blue; color: #d3d4db; padding: 15px; border-radius: 10px; margin: 10px 0;
