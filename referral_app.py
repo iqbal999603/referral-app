@@ -10,7 +10,7 @@ import urllib.parse
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS ==========
+# ========== CUSTOM CSS (same as before) ==========
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
@@ -43,15 +43,6 @@ st.markdown("""
         padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2); color: white; text-align: center;
     }
-    .streamlit-expanderHeader { color: white !important; }
-    .notification {
-        background: #f1f9ff; padding: 10px; border-radius: 10px; margin: 5px 0;
-        border-left: 5px solid #4CAF50; color: #333;
-    }
-    .referral-history-item, .discount-history-item {
-        background: white; padding: 10px; border-radius: 10px; margin: 5px 0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1); color: #333;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,7 +59,6 @@ def get_db_connection():
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 def init_db():
@@ -84,7 +74,7 @@ def init_db():
                       referred_by_id INTEGER,
                       join_date TEXT,
                       ip_address TEXT,
-                      device_fingerprint TEXT UNIQUE)''')
+                      device_fingerprint TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       referrer_id INTEGER,
@@ -122,6 +112,7 @@ def init_db():
                       is_converted INTEGER DEFAULT 0)''')
         conn.commit()
         
+        # Add device_fingerprint column if not exists
         c.execute("PRAGMA table_info(users)")
         cols = [col[1] for col in c.fetchall()]
         if 'device_fingerprint' not in cols:
@@ -159,67 +150,56 @@ def init_db():
 
 init_db()
 
-# ========== DEVICE FINGERPRINT (localStorage based, no infinite reload) ==========
+# ========== DEVICE FINGERPRINT (Manual button, no auto loop) ==========
 def get_device_fingerprint():
-    """Returns a persistent device fingerprint using localStorage."""
+    """Returns device fingerprint from localStorage via manual button click."""
+    # Session state mein pehle se hai to return
     if "_device_fp" in st.session_state:
         return st.session_state._device_fp
     
-    # JavaScript to read/write localStorage without auto-reload
-    fingerprint_html = """
-    <div id="fp-container" style="display:none;"></div>
-    <script>
-        function getOrCreateDeviceId() {
-            let deviceId = localStorage.getItem('device_fingerprint');
-            if (!deviceId) {
-                deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                    return v.toString(16);
-                });
-                localStorage.setItem('device_fingerprint', deviceId);
-            }
-            return deviceId;
-        }
-        const fp = getOrCreateDeviceId();
-        // Set a meta tag or hidden input with the fingerprint
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.id = 'device_fp_input';
-        input.value = fp;
-        document.body.appendChild(input);
-        // Dispatch a custom event that Streamlit can pick up via rerun? We'll use query param without reload.
-        const url = new URL(window.location.href);
-        if (!url.searchParams.has('fp')) {
-            url.searchParams.set('fp', fp);
-            window.history.replaceState({}, '', url);
-            // Instead of reloading, we just let Streamlit see the new param on next interaction.
-            // But to make it work immediately, we do a soft rerun via Streamlit's built-in.
-            // Streamlit will automatically rerun when query params change? No, but we can force.
-            // Use window.location.reload() only once.
-            window.location.reload();
-        }
-    </script>
-    """
-    st.markdown(fingerprint_html, unsafe_allow_html=True)
-    
-    query_params = st.query_params
-    if "fp" in query_params:
-        fp = query_params["fp"]
+    # Query param se check karein
+    qp = st.query_params
+    if "fp" in qp:
+        fp = qp["fp"]
         st.session_state._device_fp = fp
+        # Remove param from URL to avoid confusion
+        st.query_params.clear()
         return fp
-    return None
+    
+    # Nahi hai to user ko button dikhayein
+    st.info("🔐 Device identification required to prevent multiple accounts.")
+    
+    # JavaScript jo localStorage se ID le kar URL param set kare
+    identify_html = """
+    <script>
+    function getDeviceId() {
+        let id = localStorage.getItem('device_fp');
+        if (!id) {
+            id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            localStorage.setItem('device_fp', id);
+        }
+        return id;
+    }
+    function setFingerprint() {
+        const fp = getDeviceId();
+        const url = new URL(window.location.href);
+        url.searchParams.set('fp', fp);
+        window.location.href = url.toString();
+    }
+    </script>
+    <button onclick="setFingerprint()" style="background:#ff9f43; border:none; padding:10px 20px; border-radius:40px; color:white; font-weight:bold; cursor:pointer;">🔍 Identify My Device (Click once)</button>
+    """
+    st.markdown(identify_html, unsafe_allow_html=True)
+    st.stop()
 
 def get_device_fingerprint_safe():
-    """User-friendly wrapper that handles missing fingerprint."""
-    fp = get_device_fingerprint()
-    if fp is None:
-        st.warning("⚠️ Device identification is loading. Please wait a moment...")
-        if st.button("🔄 Refresh Page", use_container_width=True):
-            st.rerun()
-        st.stop()
-    return fp
+    """Wrapper that returns fingerprint or stops until user clicks."""
+    return get_device_fingerprint()
 
-# ========== HELPER FUNCTIONS ==========
+# ========== HELPER FUNCTIONS (same as before) ==========
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
@@ -452,7 +432,7 @@ elif st.session_state.page == "Register":
     
     st.session_state.registration_success = False
     
-    # Device fingerprint check
+    # Device fingerprint (manual button)
     device_fp = get_device_fingerprint_safe()
     
     with st.form("reg_form", clear_on_submit=False):
@@ -472,7 +452,7 @@ elif st.session_state.page == "Register":
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                # Check existing device or mobile
+                # Check existing device fingerprint
                 with get_db_connection() as conn:
                     c = conn.cursor()
                     c.execute("SELECT id FROM users WHERE device_fingerprint = ?", (device_fp,))
