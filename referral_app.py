@@ -722,8 +722,7 @@ elif st.session_state.page == "RepairCategories":
             issues = c.fetchall()
         for iss in issues:
             st.write(f"📌 {iss[1][:10]}: {iss[0]}")
-            
-            elif st.session_state.page == "AdminPanel":
+    elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
     if admin_pass == ADMIN_PASSWORD:
         st.success("Admin Panel")
