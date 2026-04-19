@@ -16,7 +16,7 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: Light blue !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: Light blue; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
+        background: Light blue; color: #d3d4db; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -786,7 +786,7 @@ elif st.session_state.page == "AdminPanel":
             if reports:
                 for r in reports:
                     st.markdown(f"""
-                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#d3d4db;">
+                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
                         <strong>{r[0]}</strong> ({r[1]})<br>
                         Issue: {r[2]}<br>
                         Date: {r[3][:16]}
