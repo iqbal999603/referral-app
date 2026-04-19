@@ -719,9 +719,9 @@ elif st.session_state.page == "RepairCategories":
                          JOIN repair_categories rc ON us.category_id = rc.id 
                          WHERE us.user_id = ? 
                          ORDER BY us.selection_date DESC LIMIT 5""", (st.session_state.user_id,))
-                   issues = c.fetchall()
-        for iss in issues:
-            st.write(f"📌 {iss[1][:10]}: {iss[0]}")
+            issues = c.fetchall()
+            for iss in issues:
+                st.write(f"📌 {iss[1][:10]}: {iss[0]}")
 
 elif st.session_state.page == "AdminPanel":
     admin_pass = st.text_input("Admin Password", type="password")
@@ -730,6 +730,8 @@ elif st.session_state.page == "AdminPanel":
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["👥 Users", "📥 Export", "📤 CSV Upload", "📈 Bulk Points", "📊 Reports", "🔧 Repair Reports"])
         
         with tab1:
+            # yahan se aapka existing AdminPanel ka code aayega
+            # ... (main poora code pehle de chuka hoon)
             search = st.text_input("Search by name or mobile")
             with get_db_connection() as conn:
                 c = conn.cursor()
