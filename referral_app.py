@@ -152,25 +152,21 @@ init_db()
 
 # ========== DEVICE FINGERPRINT (Manual button, no auto loop) ==========
 def get_device_fingerprint():
-    """Returns device fingerprint from localStorage via manual button click."""
-    # Session state mein pehle se hai to return
     if "_device_fp" in st.session_state:
         return st.session_state._device_fp
     
-    # Query param se check karein
+    # Check query param
     qp = st.query_params
     if "fp" in qp:
         fp = qp["fp"]
         st.session_state._device_fp = fp
-        # Remove param from URL to avoid confusion
+        # Clear param to avoid showing
         st.query_params.clear()
         return fp
     
-    # Nahi hai to user ko button dikhayein
-    st.info("🔐 Device identification required to prevent multiple accounts.")
-    
-    # JavaScript jo localStorage se ID le kar URL param set kare
-    identify_html = """
+    # No fingerprint yet, generate one using JavaScript and reload once
+    st.markdown("""
+    <div id="fp-loader"></div>
     <script>
     function getDeviceId() {
         let id = localStorage.getItem('device_fp');
@@ -183,16 +179,14 @@ def get_device_fingerprint():
         }
         return id;
     }
-    function setFingerprint() {
-        const fp = getDeviceId();
-        const url = new URL(window.location.href);
-        url.searchParams.set('fp', fp);
-        window.location.href = url.toString();
+    const fp = getDeviceId();
+    // Set query param and reload only if not already set
+    if (!window.location.search.includes('fp=')) {
+        window.location.href = window.location.pathname + '?fp=' + fp;
     }
     </script>
-    <button onclick="setFingerprint()" style="background:#ff9f43; border:none; padding:10px 20px; border-radius:40px; color:white; font-weight:bold; cursor:pointer;">🔍 Identify My Device (Click once)</button>
-    """
-    st.markdown(identify_html, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+    st.info("🔄 Identifying your device... Please wait.")
     st.stop()
 
 def get_device_fingerprint_safe():
