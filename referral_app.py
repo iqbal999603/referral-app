@@ -20,11 +20,11 @@ st.markdown("""
     }
     .gradient-card {
         background: linear-gradient(135deg, #9ca9e6 0%, #764ba2 100%);
-        color: white; padding: 20px; border-radius: 15px;
+        color: black; padding: 20px; border-radius: 15px;
     }
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none; color: white; border-radius: 40px; font-weight: bold;
+        border: none; color: black; border-radius: 40px; font-weight: bold;
     }
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
@@ -786,7 +786,7 @@ elif st.session_state.page == "AdminPanel":
             if reports:
                 for r in reports:
                     st.markdown(f"""
-                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
+                    <div style="background:black; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
                         <strong>{r[0]}</strong> ({r[1]})<br>
                         Issue: {r[2]}<br>
                         Date: {r[3][:16]}
