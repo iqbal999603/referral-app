@@ -535,22 +535,31 @@ elif st.session_state.page == "Leaderboard":
     st.subheader("🏆 Top Referrers")
     with get_db_connection() as conn:
         c = conn.cursor()
-        c.execute("SELECT name, points, referral_code FROM users ORDER BY points DESC LIMIT 20")
+        # Join date bhi select kar rahe hain
+        c.execute("SELECT name, points, referral_code, join_date FROM users ORDER BY points DESC LIMIT 20")
         top = c.fetchall()
     if top:
         for i, u in enumerate(top[:10], 1):
-            col1, col2, col3 = st.columns([1,3,2])
+            col1, col2, col3, col4 = st.columns([1, 3, 2, 3])
             with col1:
                 if i == 1: st.markdown("🏆 **1st**")
                 elif i == 2: st.markdown("🥈 **2nd**")
                 elif i == 3: st.markdown("🥉 **3rd**")
                 else: st.write(f"**{i}th**")
-            with col2: st.write(u[0])
-            with col3: st.write(f"⭐ {u[1]} points")
+            with col2:
+                st.write(u[0])  # name
+            with col3:
+                st.write(f"⭐ {u[1]} points")
+            with col4:
+                # Full datetime show karein (YYYY-MM-DD HH:MM:SS)
+                if u[3]:
+                    st.write(f"📅 {u[3]}")
+                else:
+                    st.write("📅 No date")
         if len(top) > 10:
             with st.expander("Show more"):
                 for i, u in enumerate(top[10:], 11):
-                    st.write(f"{i}. {u[0]} - ⭐ {u[1]} points")
+                    st.write(f"{i}. {u[0]} - ⭐ {u[1]} points - Joined: {u[3] if u[3] else '?'}")
         st.caption("50 points per referral | 500 points = 500 PKR discount")
     else:
         st.info("No users yet.")
