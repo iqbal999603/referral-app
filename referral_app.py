@@ -796,3 +796,29 @@ elif st.session_state.page == "AdminPanel":
                 st.info("No repair reports yet.")
     elif admin_pass:
         st.error("Wrong password")
+        # ... aapka sara code (Home, Register, Login, AdminPanel, etc.) ...
+
+# ========== FOOTER ==========
+st.markdown("""
+<style>
+    .footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        text-align: center;
+        padding: 8px;
+        font-size: 12px;
+        z-index: 999;
+        backdrop-filter: blur(5px);
+    }
+    .main .block-container {
+        padding-bottom: 50px;
+    }
+</style>
+<div class="footer">
+    © 2026-2027 Ali Mobiles Repairing, Ali Laal Road, Layyah. All Rights Reserved.
+</div>
+""", unsafe_allow_html=True)
