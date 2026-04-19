@@ -89,7 +89,7 @@ else:
 # ========== HOME ==========
 if st.session_state.page == "Home":
     st.title("Ali Mobile Referral System")
-    st.write("Refer Users And Earn Rewards ALI L A A L R O A D L A Y Y A H 03006762827")
+    st.write("Refer Users And Earn Rewards. (ALI L A A L R O A D L A Y Y A H) 03006762827")
 
 # ========== REGISTER ==========
 elif st.session_state.page == "Register":
