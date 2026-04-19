@@ -14,9 +14,9 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: Green !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
+        background: Green; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
