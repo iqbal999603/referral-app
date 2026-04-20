@@ -41,11 +41,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-/* Forcefully change background of ALL cards on Home page */
-div[class*="card"], div[class*="green-card"], div[class*="custom-card"] {
-    background: #d4eaff !important;
-    color: #333 !important;
-}
 
 # ========== SECRETS ==========
 try:
