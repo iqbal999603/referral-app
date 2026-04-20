@@ -10,20 +10,6 @@ import urllib.parse
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== SESSION STATE INITIALIZATION ==========
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_id = None
-    st.session_state.user_mobile = None
-    st.session_state.user_name = None
-    st.session_state.user_code = None
-if 'page' not in st.session_state:
-    st.session_state.page = "Home"
-if 'registration_success' not in st.session_state:
-    st.session_state.registration_success = False
-if 'repair_reported' not in st.session_state:
-    st.session_state.repair_reported = set()
-
 # ========== DARK MODE CSS (Default Dark) ==========
 st.markdown("""
 <style>
@@ -36,7 +22,7 @@ st.markdown("""
     }
     
     /* All cards - dark background, white text */
-    .card, .metric-card, .referral-history-item, .discount-history-item, .notification, .green-card, .services-card {
+    .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
         background: #1e1e1e !important;
         color: #ffffff !important;
         padding: 15px;
@@ -45,7 +31,7 @@ st.markdown("""
         border: 1px solid #333;
     }
     
-    .card p, .card h3, .metric-card h3, .metric-card h4, .notification, .green-card p, .green-card h3 {
+    .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
         color: #ffffff !important;
     }
     
@@ -351,6 +337,20 @@ def reset_user_password(user_id):
     add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
     return new_pass, name
 
+# ========== SESSION STATE ==========
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+    st.session_state.user_mobile = None
+    st.session_state.user_name = None
+    st.session_state.user_code = None
+if 'page' not in st.session_state:
+    st.session_state.page = "Home"
+if 'registration_success' not in st.session_state:
+    st.session_state.registration_success = False
+if 'repair_reported' not in st.session_state:
+    st.session_state.repair_reported = set()
+
 # ========== REFERRAL TRACKING ==========
 query_params = st.query_params
 if 'ref' in query_params:
@@ -421,12 +421,12 @@ if st.session_state.page == "Home":
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown('<div class="green-card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
             if st.button("➡️ Register Now", use_container_width=True):
                 st.session_state.page = "Register"
                 st.rerun()
         with col2:
-            st.markdown('<div class="green-card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
             if st.button("➡️ Login", use_container_width=True):
                 st.session_state.page = "Login"
                 st.rerun()
