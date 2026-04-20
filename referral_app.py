@@ -13,88 +13,35 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== CUSTOM CSS ==========
 st.markdown("""
 <style>
-    /* Dark mode default */
-    .stApp { background: #0a0a0a !important; }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: #ffffff !important; }
-    
-    /* Cards and boxes */
+    .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: #1e1e1e !important;
-        color: #e0e0e0 !important;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
+        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
     }
-    .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
-        color: #e0e0e0 !important;
-    }
-    
-    /* Gradient card (welcome box) */
     .gradient-card {
-        background: linear-gradient(135deg, #2c3e50 0%, #000000 100%) !important;
-        color: white !important;
-        padding: 20px;
-        border-radius: 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white; padding: 20px; border-radius: 15px;
     }
-    
-    /* Green cards (Home page New Customer & Already a member) */
-    .green-card {
-        background: #2e7d32 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-    }
-    
-    /* Buttons */
     .stButton button {
-        background: linear-gradient(45deg, #ff9f43, #ff6b6b) !important;
-        border: none;
-        color: white !important;
-        border-radius: 40px;
-        font-weight: bold;
+        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
+        border: none; color: white; border-radius: 40px; font-weight: bold;
     }
-    
-    /* Top header */
-    .top-header {
-        background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%) !important;
-        padding: 1rem 2rem;
-        border-radius: 20px;
-        margin-bottom: 2rem;
-        color: white;
-        text-align: center;
-    }
-    
-    /* Social share buttons */
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
     .social-share-btn {
-        display: inline-block;
-        padding: 8px 18px;
-        margin: 5px;
-        border-radius: 30px;
-        text-decoration: none;
-        color: white;
-        font-weight: bold;
+        display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px;
+        text-decoration: none; color: white; font-weight: bold;
     }
-    
-    /* Footer */
-    .footer {
-        background-color: rgba(0,0,0,0.9) !important;
-        color: #ccc !important;
-    }
-    
-    /* Selectbox etc */
-    .stSelectbox div[data-baseweb="select"] > div {
-        color: white !important;
-    }
-    .streamlit-expanderHeader {
-        color: white !important;
+    .top-header {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem;
+        color: white; text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
+
 # ========== SECRETS ==========
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
@@ -102,7 +49,7 @@ try:
 except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
-    
+
 # ========== DATABASE ==========
 def get_db_connection():
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
@@ -391,7 +338,7 @@ if st.session_state.page == "Home":
                 <li>📷 Camera Repair</li>
                 <li>🎧 Audio / Speaker Fix</li>
             </ul>
-            <p><strong>Same Day Service</strong></p>
+            <p><strong>Same Day Service | Warranty on Repairs</strong></p>
         </div>
         """, unsafe_allow_html=True)
     else:
