@@ -16,9 +16,8 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
     
-    /* SABHI CARDS (any class) ko light blue karein */
-    .card, .metric-card, .referral-history-item, .discount-history-item, .notification,
-    .green-card, .services-card, .gradient-card, .custom-card {
+    /* All cards including green-card */
+    .card, .metric-card, .referral-history-item, .discount-history-item, .notification, .green-card {
         background: #d4eaff !important;
         color: #333 !important;
         padding: 15px;
@@ -26,7 +25,7 @@ st.markdown("""
         margin: 10px 0;
     }
     
-    /* Gradient card ko chod kar baqi sab light blue ho jayenge */
+    /* Keep gradient card as is */
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         color: white !important;
