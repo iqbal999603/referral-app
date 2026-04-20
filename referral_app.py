@@ -15,29 +15,53 @@ st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
+    
+    /* Sab white background wale cards ab light blue */
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
+        background: #d4eaff;   /* ← light blue (change kiya) */
+        color: #333;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
     }
+    
     .gradient-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white; padding: 20px; border-radius: 15px;
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
     }
+    
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none; color: white; border-radius: 40px; font-weight: bold;
+        border: none;
+        color: white;
+        border-radius: 40px;
+        font-weight: bold;
     }
+    
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
+    
     .social-share-btn {
-        display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px;
-        text-decoration: none; color: white; font-weight: bold;
+        display: inline-block;
+        padding: 8px 18px;
+        margin: 5px;
+        border-radius: 30px;
+        text-decoration: none;
+        color: white;
+        font-weight: bold;
     }
+    
     .top-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem;
-        color: white; text-align: center;
+        padding: 1rem 2rem;
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        color: white;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
