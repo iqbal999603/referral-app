@@ -235,7 +235,7 @@ def init_db():
         # Create default official account if not exists
         c.execute("SELECT id FROM users WHERE referral_code = 'ALIOFFICIAL'")
         if not c.fetchone():
-            default_pass = hash_password("admin123")
+            default_pass = hash_password("Admin@51214725")
             join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""INSERT INTO users (name, mobile, password, referral_code, points, join_date) 
                          VALUES (?,?,?,?,?,?)""",
