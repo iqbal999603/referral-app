@@ -41,6 +41,11 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+/* Forcefully change background of ALL cards on Home page */
+div[class*="card"], div[class*="green-card"], div[class*="custom-card"] {
+    background: #d4eaff !important;
+    color: #333 !important;
+}
 
 # ========== SECRETS ==========
 try:
@@ -49,12 +54,7 @@ try:
 except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
-    /* Forcefully change background of ALL cards on Home page */
-div[class*="card"], div[class*="green-card"], div[class*="custom-card"] {
-    background: #d4eaff !important;
-    color: #333 !important;
-}
-
+    
 # ========== DATABASE ==========
 def get_db_connection():
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
