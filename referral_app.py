@@ -10,34 +10,141 @@ import urllib.parse
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="📱", layout="wide")
 
-# ========== CUSTOM CSS ==========
+# ========== SESSION STATE INITIALIZATION ==========
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+    st.session_state.user_mobile = None
+    st.session_state.user_name = None
+    st.session_state.user_code = None
+if 'page' not in st.session_state:
+    st.session_state.page = "Home"
+if 'registration_success' not in st.session_state:
+    st.session_state.registration_success = False
+if 'repair_reported' not in st.session_state:
+    st.session_state.repair_reported = set()
+
+# ========== DARK MODE CSS (Default Dark) ==========
 st.markdown("""
 <style>
-    .stApp { background: linear-gradient(135deg, #0a2b5e 0%, #1a4a8a 100%); }
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label { color: white !important; }
-    .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: white; color: #333; padding: 15px; border-radius: 10px; margin: 10px 0;
+    /* Main background */
+    .stApp { background: #0a0a0a !important; }
+    
+    /* All text white */
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label, .stTextInput label, .stSelectbox label {
+        color: #ffffff !important;
     }
+    
+    /* All cards - dark background, white text */
+    .card, .metric-card, .referral-history-item, .discount-history-item, .notification, .green-card, .services-card {
+        background: #1e1e1e !important;
+        color: #ffffff !important;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border: 1px solid #333;
+    }
+    
+    .card p, .card h3, .metric-card h3, .metric-card h4, .notification, .green-card p, .green-card h3 {
+        color: #ffffff !important;
+    }
+    
+    /* Gradient card (welcome box) */
     .gradient-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white; padding: 20px; border-radius: 15px;
+        background: linear-gradient(135deg, #2c3e50 0%, #000000 100%) !important;
+        color: white !important;
+        padding: 20px;
+        border-radius: 15px;
     }
+    
+    .gradient-card p, .gradient-card h2 {
+        color: white !important;
+    }
+    
+    /* Buttons */
     .stButton button {
-        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none; color: white; border-radius: 40px; font-weight: bold;
+        background: linear-gradient(45deg, #ff9f43, #ff6b6b) !important;
+        border: none;
+        color: white !important;
+        border-radius: 40px;
+        font-weight: bold;
     }
+    
+    .stButton button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+    
+    /* Top header */
+    .top-header {
+        background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%) !important;
+        padding: 1rem 2rem;
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        color: white;
+        text-align: center;
+        border: 1px solid #333;
+    }
+    
+    /* Social share buttons */
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
+    
     .social-share-btn {
-        display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px;
-        text-decoration: none; color: white; font-weight: bold;
+        display: inline-block;
+        padding: 8px 18px;
+        margin: 5px;
+        border-radius: 30px;
+        text-decoration: none;
+        color: white !important;
+        font-weight: bold;
     }
-    .top-header {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem 2rem; border-radius: 20px; margin-bottom: 2rem;
-        color: white; text-align: center;
+    
+    /* Selectbox and expander */
+    .stSelectbox div[data-baseweb="select"] > div {
+        color: white !important;
+        background-color: #1e1e1e !important;
+    }
+    
+    .streamlit-expanderHeader {
+        color: white !important;
+        background-color: #1e1e1e !important;
+    }
+    
+    /* Text input */
+    .stTextInput input {
+        background-color: #1e1e1e !important;
+        color: white !important;
+        border: 1px solid #444 !important;
+    }
+    
+    /* Info, success, warning, error boxes */
+    .stAlert {
+        background-color: #1e1e1e !important;
+        color: white !important;
+    }
+    
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background-color: #1e1e1e !important;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    
+    [data-testid="stMetric"] label, [data-testid="stMetric"] p {
+        color: white !important;
+    }
+    
+    /* Divider */
+    hr {
+        border-color: #444 !important;
+    }
+    
+    /* Code block */
+    .stCodeBlock {
+        background-color: #1e1e1e !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -138,6 +245,16 @@ def init_db():
             for cat, desc in categories:
                 c.execute("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", (cat, desc))
             conn.commit()
+        
+        # Create default official account if not exists
+        c.execute("SELECT id FROM users WHERE referral_code = 'ALIOFFICIAL'")
+        if not c.fetchone():
+            default_pass = hash_password("admin123")
+            join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            c.execute("""INSERT INTO users (name, mobile, password, referral_code, points, join_date) 
+                         VALUES (?,?,?,?,?,?)""",
+                      ("🏆 Ali Mobile Official", "03000000000", default_pass, "ALIOFFICIAL", 0, join_date))
+            conn.commit()
 
 init_db()
 
@@ -234,20 +351,6 @@ def reset_user_password(user_id):
     add_notification(user_id, f"🔐 Your password has been reset by admin. New password: {new_pass}")
     return new_pass, name
 
-# ========== SESSION STATE ==========
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_id = None
-    st.session_state.user_mobile = None
-    st.session_state.user_name = None
-    st.session_state.user_code = None
-if 'page' not in st.session_state:
-    st.session_state.page = "Home"
-if 'registration_success' not in st.session_state:
-    st.session_state.registration_success = False
-if 'repair_reported' not in st.session_state:
-    st.session_state.repair_reported = set()
-
 # ========== REFERRAL TRACKING ==========
 query_params = st.query_params
 if 'ref' in query_params:
@@ -286,7 +389,7 @@ with nav_cols[1]:
     menu_options = ["🏠 Home", "✨ New Registration", "🔐 Login", "🏆 Leaderboard", "🔧 Repair Categories"]
     if st.session_state.logged_in:
         menu_options += ["🏠 My Points", "📜 Referral History", "💰 Discount History", "📊 Click Analytics"]
-    admin_secret_input = st.text_input("WellCome", type="password", placeholder="To Login or Register, Use The Dropdown Box Below:", key="admin_secret_input")
+    admin_secret_input = st.text_input("🔑 Admin Access", type="password", placeholder="Enter admin code", key="admin_secret_input")
     if admin_secret_input == ADMIN_SECRET:
         menu_options += ["👑 Admin Panel"]
     
@@ -318,12 +421,12 @@ if st.session_state.page == "Home":
         st.markdown('<div class="gradient-card"><h2>✨ Welcome to Ali Mobile Repair</h2><p>Join our referral program and earn discounts on mobile repairs!</p></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown('<div class="card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="green-card"><h3>📝 New Customer?</h3><p>Create an account in seconds.</p></div>', unsafe_allow_html=True)
             if st.button("➡️ Register Now", use_container_width=True):
                 st.session_state.page = "Register"
                 st.rerun()
         with col2:
-            st.markdown('<div class="card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="green-card"><h3>🔐 Already a member?</h3><p>Login to see your points and referral link.</p></div>', unsafe_allow_html=True)
             if st.button("➡️ Login", use_container_width=True):
                 st.session_state.page = "Login"
                 st.rerun()
@@ -376,11 +479,13 @@ elif st.session_state.page == "Register":
     
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
+        st.info("📢 Referral Code is MANDATORY. Please enter a valid code from any existing user.")
         name = st.text_input("Full Name")
         mobile = st.text_input("Mobile Number")
         password = st.text_input("Password", type="password")
         confirm = st.text_input("Confirm Password", type="password")
-        ref_code = st.text_input("Referral Code (optional)")
+        ref_code = st.text_input("Referral Code (REQUIRED)", help="Enter referral code from any existing user (e.g., ALIOFFICIAL)")
+        
         submitted = st.form_submit_button("Register", use_container_width=True)
         
         if submitted:
@@ -390,38 +495,46 @@ elif st.session_state.page == "Register":
                 st.error("Passwords do not match.")
             elif len(password) < 4:
                 st.error("Password must be at least 4 characters.")
+            elif not ref_code:
+                st.error("❌ Referral Code is required! Please enter a valid referral code.")
+                st.stop()
             else:
                 with get_db_connection() as conn:
                     c = conn.cursor()
-                    c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
+                    
+                    # Check 1: Does referral code exist?
+                    c.execute("SELECT id, referral_code FROM users WHERE referral_code = ?", (ref_code.upper(),))
+                    ref_user = c.fetchone()
+                    if not ref_user:
+                        st.error("❌ Invalid Referral Code! Please enter a valid code from an existing user.")
+                        st.stop()
+                    
+                    # Check 2: Mobile number already registered?
+                    c.execute("SELECT id FROM users WHERE mobile = ?", (mobile,))
                     if c.fetchone():
                         st.error("Mobile number already registered.")
                         st.stop()
+                    
+                    referrer_id = ref_user[0]
                 
                 new_code = generate_code()
                 hashed = hash_password(password)
-                referrer_id = None
                 user_ip = get_real_ip()
                 join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                if ref_code:
-                    with get_db_connection() as conn:
-                        c = conn.cursor()
-                        c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code,))
-                        ref_user = c.fetchone()
-                        if ref_user:
-                            referrer_id = ref_user[0]
-                            c.execute("UPDATE users SET points = points + 50 WHERE id=?", (referrer_id,))
-                            c.execute("""INSERT INTO referral_clicks 
-                                         (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
-                                         VALUES (?,?,?,?,?)""",
-                                      (ref_code, referrer_id, user_ip, join_date, 1))
-                            conn.commit()
-                            add_notification(referrer_id, f"🎉 New user {name} registered using your code! +50 points.")
-                            st.success("Referrer got 50 points!")
-                        else:
-                            st.warning("Invalid referral code.")
+                # Update referrer points
+                with get_db_connection() as conn:
+                    c = conn.cursor()
+                    c.execute("UPDATE users SET points = points + 50 WHERE id=?", (referrer_id,))
+                    c.execute("""INSERT INTO referral_clicks 
+                                 (referral_code, referrer_id, ip_address, clicked_at, is_converted) 
+                                 VALUES (?,?,?,?,?)""",
+                              (ref_code.upper(), referrer_id, user_ip, join_date, 1))
+                    conn.commit()
+                    add_notification(referrer_id, f"🎉 New user {name} registered using your code! +50 points.")
+                    st.success("Referrer got 50 points!")
                 
+                # Create new user
                 with get_db_connection() as conn:
                     c = conn.cursor()
                     c.execute("""INSERT INTO users 
@@ -431,14 +544,14 @@ elif st.session_state.page == "Register":
                     user_id = c.lastrowid
                     conn.commit()
                 
-                if referrer_id:
-                    with get_db_connection() as conn:
-                        c = conn.cursor()
-                        c.execute("""INSERT INTO referral_history 
-                                     (referrer_id, referred_user_id, points_earned, referral_date) 
-                                     VALUES (?,?,?,?)""",
-                                  (referrer_id, user_id, 50, join_date))
-                        conn.commit()
+                # Add to referral history
+                with get_db_connection() as conn:
+                    c = conn.cursor()
+                    c.execute("""INSERT INTO referral_history 
+                                 (referrer_id, referred_user_id, points_earned, referral_date) 
+                                 VALUES (?,?,?,?)""",
+                              (referrer_id, user_id, 50, join_date))
+                    conn.commit()
                 
                 st.success(f"✅ Registration complete! Your referral code: **{new_code}**")
                 st.session_state.registration_success = True
@@ -532,35 +645,42 @@ elif st.session_state.page == "Dashboard":
             st.rerun()
 
 elif st.session_state.page == "Leaderboard":
-    st.subheader("🏆 Top Referrers")
+    st.subheader("🏆 Top Referrers (Points & Referral Count)")
     with get_db_connection() as conn:
         c = conn.cursor()
-        # Join date bhi select kar rahe hain
-        c.execute("SELECT name, points, referral_code, join_date FROM users ORDER BY points DESC LIMIT 20")
+        c.execute("""
+            SELECT u.name, u.points, u.referral_code, u.join_date, 
+                   COUNT(rh.id) as referral_count
+            FROM users u
+            LEFT JOIN referral_history rh ON u.id = rh.referrer_id
+            GROUP BY u.id
+            ORDER BY u.points DESC LIMIT 20
+        """)
         top = c.fetchall()
     if top:
         for i, u in enumerate(top[:10], 1):
-            col1, col2, col3, col4 = st.columns([1, 3, 2, 3])
+            col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 2])
             with col1:
                 if i == 1: st.markdown("🏆 **1st**")
                 elif i == 2: st.markdown("🥈 **2nd**")
                 elif i == 3: st.markdown("🥉 **3rd**")
                 else: st.write(f"**{i}th**")
             with col2:
-                st.write(u[0])  # name
+                st.write(u[0])
             with col3:
                 st.write(f"⭐ {u[1]} points")
             with col4:
-                # Full datetime show karein (YYYY-MM-DD HH:MM:SS)
+                st.write(f"👥 {u[4]} referrals")
+            with col5:
                 if u[3]:
-                    st.write(f"📅 {u[3]}")
+                    st.write(f"📅 {u[3][:10]}")
                 else:
                     st.write("📅 No date")
         if len(top) > 10:
             with st.expander("Show more"):
                 for i, u in enumerate(top[10:], 11):
-                    st.write(f"{i}. {u[0]} - ⭐ {u[1]} points - Joined: {u[3] if u[3] else '?'}")
-        st.caption("50 points per referral | 500 points = 500 PKR discount")
+                    st.write(f"{i}. {u[0]} - ⭐ {u[1]} points - 👥 {u[4]} referrals - Joined: {u[3][:10] if u[3] else '?'}")
+        st.caption("50 points per referral | 500 points = 500 PKR discount | 👥 = Total referrals made")
     else:
         st.info("No users yet.")
 
@@ -679,7 +799,7 @@ elif st.session_state.page == "AdminPanel":
                 cols[2].write(u[2])
                 cols[3].write(u[3])
                 cols[4].write(f"⭐ {u[4]}")
-                cols[5].write(u[5][:10] if u[5] else "N/A")  # Show date only
+                cols[5].write(u[5][:10] if u[5] else "N/A")
                 cols[6].write(u[6] if u[6] else "N/A")
                 with cols[7]:
                     confirm_state_key = f"delete_confirm_{u[0]}"
@@ -786,7 +906,7 @@ elif st.session_state.page == "AdminPanel":
             if reports:
                 for r in reports:
                     st.markdown(f"""
-                    <div style="background:white; padding:10px; border-radius:10px; margin:5px 0; color:#333;">
+                    <div style="background:#1e1e1e; padding:10px; border-radius:10px; margin:5px 0; color:white;">
                         <strong>{r[0]}</strong> ({r[1]})<br>
                         Issue: {r[2]}<br>
                         Date: {r[3][:16]}
@@ -796,7 +916,6 @@ elif st.session_state.page == "AdminPanel":
                 st.info("No repair reports yet.")
     elif admin_pass:
         st.error("Wrong password")
-        # ... aapka sara code (Home, Register, Login, AdminPanel, etc.) ...
 
 # ========== FOOTER ==========
 st.markdown("""
@@ -806,13 +925,13 @@ st.markdown("""
         bottom: 0;
         left: 0;
         width: 100%;
-        background-color: rgba(0, 0, 0, 0.7);
-        color: white;
+        background-color: #111111;
+        color: #cccccc;
         text-align: center;
         padding: 8px;
         font-size: 12px;
         z-index: 999;
-        backdrop-filter: blur(5px);
+        border-top: 1px solid #333;
     }
     .main .block-container {
         padding-bottom: 50px;
