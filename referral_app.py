@@ -13,15 +13,10 @@ st.set_page_config(page_title="Ali Mobile Repair - Referral System", page_icon="
 # ========== DARK MODE CSS (Default Dark) ==========
 st.markdown("""
 <style>
-    /* Main background */
     .stApp { background: #0a0a0a !important; }
-    
-    /* All text white */
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown p, .stMetric label, .stTextInput label, .stSelectbox label {
         color: #ffffff !important;
     }
-    
-    /* All cards - dark background, white text */
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
         background: #1e1e1e !important;
         color: #ffffff !important;
@@ -30,24 +25,18 @@ st.markdown("""
         margin: 10px 0;
         border: 1px solid #333;
     }
-    
     .card p, .card h3, .metric-card h3, .metric-card h4, .notification {
         color: #ffffff !important;
     }
-    
-    /* Gradient card (welcome box) */
     .gradient-card {
         background: linear-gradient(135deg, #2c3e50 0%, #000000 100%) !important;
         color: white !important;
         padding: 20px;
         border-radius: 15px;
     }
-    
     .gradient-card p, .gradient-card h2 {
         color: white !important;
     }
-    
-    /* Buttons */
     .stButton button {
         background: linear-gradient(45deg, #ff9f43, #ff6b6b) !important;
         border: none;
@@ -55,13 +44,10 @@ st.markdown("""
         border-radius: 40px;
         font-weight: bold;
     }
-    
     .stButton button:hover {
         transform: scale(1.02);
         box-shadow: 0 5px 15px rgba(0,0,0,0.3);
     }
-    
-    /* Top header */
     .top-header {
         background: linear-gradient(135deg, #000000 0%, #1a1a2e 100%) !important;
         padding: 1rem 2rem;
@@ -71,13 +57,10 @@ st.markdown("""
         text-align: center;
         border: 1px solid #333;
     }
-    
-    /* Social share buttons */
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
     .telegram { background: #0088cc; }
-    
     .social-share-btn {
         display: inline-block;
         padding: 8px 18px;
@@ -87,48 +70,34 @@ st.markdown("""
         color: white !important;
         font-weight: bold;
     }
-    
-    /* Selectbox and expander */
     .stSelectbox div[data-baseweb="select"] > div {
         color: white !important;
         background-color: #1e1e1e !important;
     }
-    
     .streamlit-expanderHeader {
         color: white !important;
         background-color: #1e1e1e !important;
     }
-    
-    /* Text input */
     .stTextInput input {
         background-color: #1e1e1e !important;
         color: white !important;
         border: 1px solid #444 !important;
     }
-    
-    /* Info, success, warning, error boxes */
     .stAlert {
         background-color: #1e1e1e !important;
         color: white !important;
     }
-    
-    /* Metric cards */
     [data-testid="stMetric"] {
         background-color: #1e1e1e !important;
         padding: 10px;
         border-radius: 10px;
     }
-    
     [data-testid="stMetric"] label, [data-testid="stMetric"] p {
         color: white !important;
     }
-    
-    /* Divider */
     hr {
         border-color: #444 !important;
     }
-    
-    /* Code block */
     .stCodeBlock {
         background-color: #1e1e1e !important;
     }
@@ -143,7 +112,13 @@ except:
     ADMIN_SECRET = "Admin@51214725"
     ADMIN_PASSWORD = "Admin51214725"
 
-# ========== DATABASE ==========
+# ========== HELPER FUNCTIONS (DEFINED FIRST) ==========
+def generate_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def hash_password(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
 def get_db_connection():
     conn = sqlite3.connect('referral.db', timeout=10, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -235,22 +210,17 @@ def init_db():
         # Create default official account if not exists
         c.execute("SELECT id FROM users WHERE referral_code = 'ALIOFFICIAL'")
         if not c.fetchone():
-            default_pass = hash_password("Admin@51214725")
+            default_pass = hash_password("admin123")
             join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""INSERT INTO users (name, mobile, password, referral_code, points, join_date) 
                          VALUES (?,?,?,?,?,?)""",
                       ("🏆 Ali Mobile Official", "03000000000", default_pass, "ALIOFFICIAL", 0, join_date))
             conn.commit()
 
+# Initialize database
 init_db()
 
-# ========== HELPER FUNCTIONS ==========
-def generate_code():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-
-def hash_password(pwd):
-    return hashlib.sha256(pwd.encode()).hexdigest()
-
+# ========== OTHER HELPER FUNCTIONS ==========
 def add_notification(user_id, message):
     with get_db_connection() as conn:
         c = conn.cursor()
