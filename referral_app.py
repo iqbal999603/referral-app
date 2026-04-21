@@ -84,7 +84,7 @@ st.markdown("""
         border: 1px solid #444 !important;
     }
     .stAlert {
-        background-color: #1e1e1e !important;
+        background-color: #dark green !important;
         color: white !important;
     }
     [data-testid="stMetric"] {
