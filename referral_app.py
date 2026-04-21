@@ -449,7 +449,7 @@ elif st.session_state.page == "Register":
     
     with st.form("reg_form", clear_on_submit=False):
         st.subheader("✨ New Registration")
-        st.info("📢 Referral Code is MANDATORY. Please enter a valid code from any existing user or this <h3>ALIOFFICIAL</h3>")
+        st.info("📢 Referral Code is MANDATORY. Please enter a valid code from any existing user or this ALIOFFICIAL")
         name = st.text_input("Full Name")
         mobile = st.text_input("Mobile Number")
         password = st.text_input("Password", type="password")
