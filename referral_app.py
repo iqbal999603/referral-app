@@ -359,7 +359,8 @@ with nav_cols[1]:
     menu_options = ["🏠 Home", "✨ New Registration", "🔐 Login", "🏆 Leaderboard", "🔧 Repair Categories"]
     if st.session_state.logged_in:
         menu_options += ["🏠 My Points", "📜 Referral History", "💰 Discount History", "📊 Click Analytics"]
-    admin_secret_input = st.text_input("🔑 Admin Access", type="password", placeholder="Enter admin code", key="admin_secret_input")
+    admin_secret_input = st.text_input("Please select from the dropdown menu below.
+", type="password", placeholder="Enter admin code", key="admin_secret_input")
     if admin_secret_input == ADMIN_SECRET:
         menu_options += ["👑 Admin Panel"]
     
