@@ -72,7 +72,7 @@ st.markdown("""
     }
     .stSelectbox div[data-baseweb="select"] > div {
         color: white !important;
-        background-color: #1e1e1e !important;
+        background-color: #616161 !important;
     }
     .streamlit-expanderHeader {
         color: white !important;
