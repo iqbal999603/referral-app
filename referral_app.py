@@ -11,24 +11,58 @@ import time
 
 st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
 
+# ========== LIGHT BLUE THEME CSS ==========
 st.markdown("""
 <style>
-    .stApp { background: #0a0a0a; }
-    h1, h2, h3, h4, h5, h6, p, label, div, span { color: #e0e0e0 !important; }
-    .neon-text { color: #fff; text-shadow: 0 0 10px #ff9f43, 0 0 20px #ff6b6b; }
+    .stApp {
+        background: linear-gradient(135deg, #e6f0ff 0%, #cce0ff 100%);
+    }
+    /* Headings and text - dark blue for contrast */
+    h1, h2, h3, h4, h5, h6, p, label, div, span, .stMarkdown {
+        color: #1a3a6e !important;
+    }
+    /* Custom neon text effect for title (light blue version) */
+    .neon-text {
+        color: #1e3a8a;
+        text-shadow: 0 0 5px #cce0ff, 0 0 10px #99bbff;
+    }
+    /* Cards and containers */
     .card, .metric-card, .referral-history-item, .discount-history-item, .notification {
-        background: #121212; border: 1px solid #333; border-radius: 15px; padding: 15px; margin: 10px 0; transition: 0.3s;
+        background: #ffffff;
+        border: 1px solid #99bbff;
+        border-radius: 15px;
+        padding: 15px;
+        margin: 10px 0;
+        transition: 0.3s;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
-    .card:hover { border-color: #ff9f43; }
+    .card:hover {
+        border-color: #1e3a8a;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
     .gradient-card {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        color: white; padding: 30px; border-radius: 15px; border: 1px solid #ff9f43;
+        background: linear-gradient(135deg, #ffffff, #f0f5ff);
+        color: #1a3a6e;
+        padding: 30px;
+        border-radius: 15px;
+        border: 1px solid #1e3a8a;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
+    /* Buttons - blue gradient */
     .stButton button {
-        background: linear-gradient(45deg, #ff9f43, #ff6b6b);
-        border: none; color: white; border-radius: 30px; font-weight: bold; transition: 0.3s;
+        background: linear-gradient(45deg, #1e3a8a, #3b82f6);
+        border: none;
+        color: white !important;
+        border-radius: 30px;
+        font-weight: bold;
+        transition: 0.3s;
     }
-    .stButton button:hover { transform: scale(1.05); box-shadow: 0 0 20px #ff9f43; }
+    .stButton button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 0 12px #3b82f6;
+        background: linear-gradient(45deg, #3b82f6, #1e3a8a);
+    }
+    /* Social share buttons */
     .whatsapp { background: #25D366; }
     .facebook { background: #1877F2; }
     .twitter { background: #1DA1F2; }
@@ -37,9 +71,36 @@ st.markdown("""
         display: inline-block; padding: 8px 18px; margin: 5px; border-radius: 30px;
         text-decoration: none; color: white !important; font-weight: bold;
     }
+    /* Progress bar */
+    .progress-bar {
+        height: 10px;
+        background: #ddd;
+        border-radius: 5px;
+        margin: 5px 0;
+    }
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(45deg, #1e3a8a, #3b82f6);
+        border-radius: 5px;
+    }
+    /* Sidebar styling */
+    .css-1d391kg, .css-163ttbj, .eczjsme3 {
+        background-color: #ffffff;
+    }
+    /* Input fields */
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div {
+        background-color: #f9faff;
+        color: #1a3a6e;
+        border-radius: 8px;
+        border: 1px solid #99bbff;
+    }
+    hr {
+        border-color: #99bbff;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# ========== SECURE SECRETS ==========
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
@@ -47,6 +108,7 @@ except:
     st.error("Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
     st.stop()
 
+# ========== HELPER FUNCTIONS (unchanged) ==========
 def hash_password(pwd):
     salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
@@ -340,10 +402,10 @@ if 'page' not in st.session_state:
 track_referral_click()
 
 st.markdown("""
-<div style="text-align:center; padding:20px; background:linear-gradient(135deg, #121212, #1e1e2f); border-radius:20px; border:1px solid #ff9f43; margin-bottom:20px;">
+<div style="text-align:center; padding:20px; background:linear-gradient(135deg, #ffffff, #e6f0ff); border-radius:20px; border:1px solid #1e3a8a; margin-bottom:20px;">
     <h1 class="neon-text"> Ali Mobile Repair  Referral System</h1>
-    <p style="color:#ff9f43;">Ali Laal Road, Layyah | 📞 03006762827</p>
-    <p style="color:#e0e0e0;">⚡ Race to the Top! Refer, Earn, Spin & Win!</p>
+    <p style="color:#1e3a8a;">Ali Laal Road, Layyah | 📞 03006762827</p>
+    <p style="color:#1e3a8a;">⚡ Race to the Top! Refer, Earn, Spin & Win!</p>
 </div>
 """, unsafe_allow_html=True)
 
