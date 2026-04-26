@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import urllib.parse
 import time
-import threading
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
@@ -95,103 +94,55 @@ except:
     st.error("⚠️ Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
     st.stop()
 
-# ========== HELPER FUNCTIONS ==========
-def hash_password(pwd):
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
-    return salt.hex() + ':' + dk.hex()
-
-def verify_password(stored, provided):
-    try:
-        salt_hex, dk_hex = stored.split(':')
-        salt = bytes.fromhex(salt_hex)
-        new_dk = hashlib.pbkdf2_hmac('sha256', provided.encode(), salt, 100000)
-        return new_dk.hex() == dk_hex
-    except:
-        return False
-
-def generate_unique_code(conn):
-    while True:
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        c = conn.cursor()
-        c.execute("SELECT id FROM users WHERE referral_code=?", (code,))
-        if not c.fetchone():
-            return code
-
-# Thread-safe connection pool: each thread gets its own connection
-_connections = {}
-_lock = threading.Lock()
-
+# ========== DATABASE HELPERS (no caching, fresh connection each time) ==========
 def get_db_connection():
-    """Return a thread-local database connection with timeout and WAL."""
-    thread_id = threading.get_ident()
-    with _lock:
-        if thread_id not in _connections or _connections[thread_id] is None:
-            conn = sqlite3.connect('referral_game.db', timeout=20)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.row_factory = sqlite3.Row
-            _connections[thread_id] = conn
-        return _connections[thread_id]
+    """Return a new database connection with proper settings."""
+    conn = sqlite3.connect('referral_game.db', timeout=20)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.row_factory = sqlite3.Row
+    return conn
 
-def close_all_connections():
-    with _lock:
-        for tid, conn in _connections.items():
-            if conn:
-                conn.close()
-        _connections.clear()
-
-def safe_db_operation(func, *args, **kwargs):
-    """Execute a database operation with automatic retry on lock/corruption."""
+def execute_with_retry(func, *args, **kwargs):
+    """Execute a database operation with automatic retry on lock."""
     max_retries = 3
     for attempt in range(max_retries):
+        conn = None
         try:
-            return func(*args, **kwargs)
+            conn = get_db_connection()
+            result = func(conn, *args, **kwargs)
+            return result
         except sqlite3.OperationalError as e:
-            if "database is locked" in str(e) or "busy" in str(e):
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            elif "disk I/O error" in str(e) or "corrupt" in str(e):
-                # Try to recover by reopening connection
-                with _lock:
-                    conn = _connections.get(threading.get_ident())
-                    if conn:
-                        conn.close()
-                        _connections[threading.get_ident()] = None
-                time.sleep(1)
-                continue
+            if conn:
+                conn.close()
+            if "locked" in str(e) or "busy" in str(e):
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                else:
+                    raise Exception("Database is busy. Please try again in a few seconds.")
             else:
                 raise
-    raise sqlite3.OperationalError("Database operation failed after retries")
+        except Exception as e:
+            if conn:
+                conn.close()
+            raise
+        finally:
+            if conn:
+                conn.close()
+    return None
 
-def migrate_db():
-    """Safely add missing columns and indexes."""
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    # Check if daily_bonus has streak column
-    c.execute("PRAGMA table_info(daily_bonus)")
-    columns = [col[1] for col in c.fetchall()]
-    if 'streak' not in columns:
-        c.execute("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1")
-        conn.commit()
-    # Ensure unique index on referral_history
-    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)")
-    conn.commit()
-    conn.close()
-
-def init_db():
+# ========== DATABASE INITIALIZATION AND MIGRATION ==========
+def init_db(conn):
     """Create all tables if they don't exist."""
-    conn = safe_db_operation(get_db_connection)
     c = conn.cursor()
     
-    # Users table
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT, mobile TEXT UNIQUE, password TEXT,
                   referral_code TEXT UNIQUE, points INTEGER DEFAULT 0,
                   referred_by_id INTEGER, join_date TEXT, ip_address TEXT)''')
-    # Referral history
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER, referred_user_id INTEGER,
@@ -232,7 +183,6 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, item_id INTEGER, purchase_date TEXT)''')
     
-    # Indexes
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_referral_clicks_code ON referral_clicks(referral_code)")
@@ -271,73 +221,84 @@ def init_db():
                   ("🏆 Ali Mobile Official", "03000000000", hash_password("admin123"), "ALIOFFICIAL", 0,
                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     conn.commit()
-    conn.close()
 
-# Initialize database safely with error recovery
+def migrate_db(conn):
+    """Add missing columns (streak, unique indexes)."""
+    c = conn.cursor()
+    # Check if daily_bonus has streak column
+    c.execute("PRAGMA table_info(daily_bonus)")
+    columns = [col[1] for col in c.fetchall()]
+    if 'streak' not in columns:
+        c.execute("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1")
+        conn.commit()
+    # Unique index to prevent duplicate referrals
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)")
+    conn.commit()
+
+def generate_unique_code(conn):
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE referral_code=?", (code,))
+        if not c.fetchone():
+            return code
+
+# Run initialization once at startup
 try:
-    init_db()
-    migrate_db()
+    # Run init and migration in a single connection
+    conn = get_db_connection()
+    init_db(conn)
+    migrate_db(conn)
+    conn.close()
 except Exception as e:
     st.error(f"Database initialization error: {str(e)}")
     st.info("If the error persists, please delete the 'referral_game.db' file from the app files (via Manage app > Files) and refresh.")
     st.stop()
 
-# ========== TRACK REFERRAL CLICKS FROM URL ==========
-def track_referral_click():
-    params = st.query_params
-    ref_code = params.get("ref")
-    if ref_code and not st.session_state.get("click_tracked", False):
-        try:
-            conn = safe_db_operation(get_db_connection)
-            c = conn.cursor()
-            c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
-            referrer = c.fetchone()
-            if referrer:
-                ip = st.session_state.get("session_id", os.urandom(8).hex())
-                today = datetime.now().strftime("%Y-%m-%d")
-                c.execute("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
-                          (ref_code.upper(), ip, today))
-                if not c.fetchone():
-                    c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,0)",
-                              (ref_code.upper(), referrer[0], ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-            conn.close()
-        except:
-            pass
-        st.session_state.click_tracked = True
+# ========== HELPER FUNCTIONS (each opens its own connection) ==========
+def hash_password(pwd):
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
+    return salt.hex() + ':' + dk.hex()
 
-track_referral_click()
+def verify_password(stored, provided):
+    try:
+        salt_hex, dk_hex = stored.split(':')
+        salt = bytes.fromhex(salt_hex)
+        new_dk = hashlib.pbkdf2_hmac('sha256', provided.encode(), salt, 100000)
+        return new_dk.hex() == dk_hex
+    except:
+        return False
 
-# ========== GAME FUNCTIONS ==========
 def add_notification(user_id, message):
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
-              (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    conn.commit()
-    conn.close()
+    def _add(conn):
+        c = conn.cursor()
+        c.execute("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
+                  (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+    execute_with_retry(_add)
 
 def check_and_award_badges(user_id):
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (user_id,))
-    refs = c.fetchone()[0]
-    c.execute("SELECT badge_name FROM user_badges WHERE user_id=?", (user_id,))
-    earned = [row[0] for row in c.fetchall()]
-    def award(badge):
-        if badge not in earned:
-            c.execute("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
-                      (user_id, badge, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-            add_notification(user_id, f"🏅 You earned the badge: {badge}")
-    if refs >= 1: award("First Referral 🥉")
-    if refs >= 5: award("5 Referrals 🥈")
-    if refs >= 10: award("10 Referrals 🥇")
-    if refs >= 25: award("Referral King 👑")
-    c.execute("SELECT COUNT(*) FROM discount_history WHERE user_id=?", (user_id,))
-    if c.fetchone()[0] > 0:
-        award("Discount Claimer 💰")
-    conn.commit()
-    conn.close()
+    def _check(conn):
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (user_id,))
+        refs = c.fetchone()[0]
+        c.execute("SELECT badge_name FROM user_badges WHERE user_id=?", (user_id,))
+        earned = [row[0] for row in c.fetchall()]
+        def award(badge):
+            if badge not in earned:
+                c.execute("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
+                          (user_id, badge, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                add_notification(user_id, f"🏅 You earned the badge: {badge}")
+        if refs >= 1: award("First Referral 🥉")
+        if refs >= 5: award("5 Referrals 🥈")
+        if refs >= 10: award("10 Referrals 🥇")
+        if refs >= 25: award("Referral King 👑")
+        c.execute("SELECT COUNT(*) FROM discount_history WHERE user_id=?", (user_id,))
+        if c.fetchone()[0] > 0:
+            award("Discount Claimer 💰")
+        conn.commit()
+    execute_with_retry(_check)
 
 def get_level(points):
     if points < 100: return ("Bronze", "#cd7f32")
@@ -346,50 +307,45 @@ def get_level(points):
     else: return ("Diamond", "#b9f2ff")
 
 def daily_bonus_claim(user_id):
-    today = datetime.now().strftime("%Y-%m-%d")
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today))
-    if c.fetchone():
-        conn.close()
-        return 0, "already_claimed"
-    c.execute("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,))
-    last = c.fetchone()
-    if last:
-        last_date = datetime.strptime(last[0], "%Y-%m-%d").date()
-        yesterday = datetime.now().date() - timedelta(days=1)
-        if last_date == yesterday:
-            new_streak = last[1] + 1
+    def _claim(conn):
+        c = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        c.execute("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today))
+        if c.fetchone():
+            return 0, "already_claimed"
+        c.execute("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,))
+        last = c.fetchone()
+        if last:
+            last_date = datetime.strptime(last[0], "%Y-%m-%d").date()
+            yesterday = datetime.now().date() - timedelta(days=1)
+            if last_date == yesterday:
+                new_streak = last[1] + 1
+            else:
+                new_streak = 1
         else:
             new_streak = 1
-    else:
-        new_streak = 1
-    bonus = 5 if new_streak < 7 else 50
-    c.execute("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak))
-    c.execute("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id))
-    conn.commit()
-    conn.close()
-    check_and_award_badges(user_id)
-    return bonus, "success"
+        bonus = 5 if new_streak < 7 else 50
+        c.execute("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak))
+        c.execute("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id))
+        conn.commit()
+        return bonus, "success"
+    return execute_with_retry(_claim)
 
 def spin_wheel(user_id):
-    today = datetime.now().strftime("%Y-%m-%d")
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("SELECT * FROM spin_history WHERE user_id=? AND spin_date=?", (user_id, today))
-    if c.fetchone():
-        conn.close()
-        return 0, "already_spun"
-    prizes = [5, 10, 20, 30, 50, 100, 200]
-    weights = [40, 25, 15, 10, 5, 3, 2]
-    won = random.choices(prizes, weights=weights, k=1)[0]
-    c.execute("INSERT INTO spin_history (user_id, points_won, spin_date) VALUES (?,?,?)", (user_id, won, today))
-    c.execute("UPDATE users SET points = points + ? WHERE id=?", (won, user_id))
-    conn.commit()
-    conn.close()
-    add_notification(user_id, f"🎰 You won {won} points from the lucky wheel!")
-    check_and_award_badges(user_id)
-    return won, "success"
+    def _spin(conn):
+        c = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        c.execute("SELECT * FROM spin_history WHERE user_id=? AND spin_date=?", (user_id, today))
+        if c.fetchone():
+            return 0, "already_spun"
+        prizes = [5, 10, 20, 30, 50, 100, 200]
+        weights = [40, 25, 15, 10, 5, 3, 2]
+        won = random.choices(prizes, weights=weights, k=1)[0]
+        c.execute("INSERT INTO spin_history (user_id, points_won, spin_date) VALUES (?,?,?)", (user_id, won, today))
+        c.execute("UPDATE users SET points = points + ? WHERE id=?", (won, user_id))
+        conn.commit()
+        return won, "success"
+    return execute_with_retry(_spin)
 
 def get_social_urls(referral_link, code, name):
     msg = f"📱 Ali Mobile Repair - Referral Race!\n\nMy referral code: {code}\nJoin: {referral_link}\n\n50 points per referral! 500 points = 500 PKR discount!"
@@ -408,48 +364,48 @@ def normalize_csv_columns(df):
     return df
 
 def delete_user(user_id):
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("SELECT referred_by_id FROM users WHERE id=?", (user_id,))
-    ref_by = c.fetchone()
-    if ref_by and ref_by[0]:
-        c.execute("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0], user_id))
-        pts = c.fetchone()
-        if pts:
-            c.execute("UPDATE users SET points = points - ? WHERE id=?", (pts[0], ref_by[0]))
-            add_notification(ref_by[0], f"⚠️ A user you referred was deleted. {pts[0]} points removed.")
-    c.execute("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id))
-    c.execute("DELETE FROM discount_history WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM notifications WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM user_repair_selections WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM referral_clicks WHERE referrer_id=?", (user_id,))
-    c.execute("DELETE FROM daily_bonus WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM spin_history WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM user_badges WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM store_purchases WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM users WHERE id=?", (user_id,))
-    conn.commit()
-    conn.close()
+    def _delete(conn):
+        c = conn.cursor()
+        c.execute("SELECT referred_by_id FROM users WHERE id=?", (user_id,))
+        ref_by = c.fetchone()
+        if ref_by and ref_by[0]:
+            c.execute("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0], user_id))
+            pts = c.fetchone()
+            if pts:
+                c.execute("UPDATE users SET points = points - ? WHERE id=?", (pts[0], ref_by[0]))
+                add_notification(ref_by[0], f"⚠️ A user you referred was deleted. {pts[0]} points removed.")
+        c.execute("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id))
+        c.execute("DELETE FROM discount_history WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM notifications WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM user_repair_selections WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM referral_clicks WHERE referrer_id=?", (user_id,))
+        c.execute("DELETE FROM daily_bonus WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM spin_history WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM user_badges WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM store_purchases WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.commit()
+    execute_with_retry(_delete)
 
 def reset_password(user_id):
     new_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
     hashed = hash_password(new_pass)
-    conn = safe_db_operation(get_db_connection)
-    c = conn.cursor()
-    c.execute("SELECT name FROM users WHERE id=?", (user_id,))
-    name = c.fetchone()[0]
-    c.execute("UPDATE users SET password=? WHERE id=?", (hashed, user_id))
-    conn.commit()
-    conn.close()
+    def _reset(conn):
+        c = conn.cursor()
+        c.execute("SELECT name FROM users WHERE id=?", (user_id,))
+        name = c.fetchone()[0]
+        c.execute("UPDATE users SET password=? WHERE id=?", (hashed, user_id))
+        conn.commit()
+        return name
+    name = execute_with_retry(_reset)
     add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
 
-# ========== REGISTRATION WITH AUTO-RETRY ==========
-def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
+def register_with_retry(name, mobile, password, ref_code, retries=3):
     for attempt in range(retries):
         conn = None
         try:
-            conn = safe_db_operation(get_db_connection)
+            conn = get_db_connection()
             c = conn.cursor()
             
             c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
@@ -479,6 +435,7 @@ def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
                       (ref_code.upper(), ref_user[0]))
             
             conn.commit()
+            conn.close()
             add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
             check_and_award_badges(ref_user[0])
             return True, new_code
@@ -486,22 +443,47 @@ def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
         except sqlite3.OperationalError as e:
             if conn:
                 conn.rollback()
+                conn.close()
             if "locked" in str(e) or "busy" in str(e):
                 if attempt < retries - 1:
-                    time.sleep(delay * (attempt + 1))
+                    time.sleep(0.5 * (attempt + 1))
                     continue
                 else:
-                    return False, f"Database busy. Please try again in a few seconds."
+                    return False, "Database busy. Please try again in a few seconds."
             else:
                 return False, f"System error: {str(e)}"
         except Exception as e:
             if conn:
                 conn.rollback()
-            return False, f"Unexpected error: {str(e)}"
-        finally:
-            if conn:
                 conn.close()
+            return False, f"Unexpected error: {str(e)}"
     return False, "Max retries exceeded."
+
+# ========== TRACK REFERRAL CLICKS ==========
+def track_referral_click():
+    params = st.query_params
+    ref_code = params.get("ref")
+    if ref_code and not st.session_state.get("click_tracked", False):
+        try:
+            def _track(conn):
+                c = conn.cursor()
+                c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
+                referrer = c.fetchone()
+                if referrer:
+                    ip = st.session_state.get("session_id", os.urandom(8).hex())
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    c.execute("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
+                              (ref_code.upper(), ip, today))
+                    if not c.fetchone():
+                        c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,0)",
+                                  (ref_code.upper(), referrer[0], ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        conn.commit()
+            execute_with_retry(_track)
+        except:
+            pass
+        st.session_state.click_tracked = True
+
+track_referral_click()
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -553,19 +535,22 @@ with st.sidebar:
 # ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
-                  (st.session_state.user_id,))
-        notifs = c.fetchall()
+        def _get_notifs(conn):
+            c = conn.cursor()
+            c.execute("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
+                      (st.session_state.user_id,))
+            return c.fetchall()
+        notifs = execute_with_retry(_get_notifs)
         if notifs:
             with st.expander(f"🔔 You have {len(notifs)} new notification(s)"):
                 for n in notifs:
                     st.markdown(f'📢 {n[1]}')
             ids = [n[0] for n in notifs]
-            c.execute(f"UPDATE notifications SET is_read=1 WHERE id IN ({','.join('?'*len(ids))})", ids)
-            conn.commit()
-        conn.close()
+            def _mark_read(conn):
+                c = conn.cursor()
+                c.execute(f"UPDATE notifications SET is_read=1 WHERE id IN ({','.join('?'*len(ids))})", ids)
+                conn.commit()
+            execute_with_retry(_mark_read)
     except:
         pass
 
@@ -644,10 +629,11 @@ elif st.session_state.page == "Login":
         password = st.text_input("Password", type="password")
         if st.form_submit_button("Login"):
             try:
-                conn = safe_db_operation(get_db_connection)
-                c = conn.cursor()
-                c.execute("SELECT * FROM users WHERE mobile=?", (mobile,))
-                user = c.fetchone()
+                def _login(conn):
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM users WHERE mobile=?", (mobile,))
+                    return c.fetchone()
+                user = execute_with_retry(_login)
                 if user and verify_password(user[3], password):
                     st.session_state.logged_in = True
                     st.session_state.user_id = user[0]
@@ -658,7 +644,6 @@ elif st.session_state.page == "Login":
                     st.rerun()
                 else:
                     st.error("Invalid credentials.")
-                conn.close()
             except Exception as e:
                 st.error(f"Login error: {str(e)}")
 
@@ -667,10 +652,11 @@ elif st.session_state.page == "Dashboard":
         st.warning("Please login")
         st.stop()
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT name, mobile, referral_code, points FROM users WHERE id=?", (st.session_state.user_id,))
-        user = c.fetchone()
+        def _get_user(conn):
+            c = conn.cursor()
+            c.execute("SELECT name, mobile, referral_code, points FROM users WHERE id=?", (st.session_state.user_id,))
+            return c.fetchone()
+        user = execute_with_retry(_get_user)
         if not user:
             st.error("User not found. Please login again.")
             st.stop()
@@ -706,8 +692,11 @@ elif st.session_state.page == "Dashboard":
                     st.success(f"You won {won} points!")
                     st.rerun()
 
-        c.execute("SELECT badge_name FROM user_badges WHERE user_id=?", (st.session_state.user_id,))
-        badges = [b[0] for b in c.fetchall()]
+        def _get_badges(conn):
+            c = conn.cursor()
+            c.execute("SELECT badge_name FROM user_badges WHERE user_id=?", (st.session_state.user_id,))
+            return [row[0] for row in c.fetchall()]
+        badges = execute_with_retry(_get_badges)
         if badges:
             st.markdown("### 🏅 Your Badges: " + ", ".join(badges))
 
@@ -730,10 +719,13 @@ elif st.session_state.page == "Dashboard":
 
         if points >= 500:
             if st.button("🎁 Claim 500 PKR Discount (500 pts)"):
-                c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
-                          (st.session_state.user_id, 500, 500.0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
-                c.execute("UPDATE users SET points = points - 500 WHERE id=?", (st.session_state.user_id,))
-                conn.commit()
+                def _claim_discount(conn):
+                    c = conn.cursor()
+                    c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
+                              (st.session_state.user_id, 500, 500.0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"))
+                    c.execute("UPDATE users SET points = points - 500 WHERE id=?", (st.session_state.user_id,))
+                    conn.commit()
+                execute_with_retry(_claim_discount)
                 add_notification(st.session_state.user_id, "🎁 You claimed 500 PKR discount! Show this at shop.")
                 check_and_award_badges(st.session_state.user_id)
                 st.success("🎉 Discount claimed! Show your code at shop.")
@@ -747,21 +739,21 @@ elif st.session_state.page == "Dashboard":
                     del st.session_state[key]
             st.session_state.page = "Home"
             st.rerun()
-        conn.close()
     except Exception as e:
         st.error(f"Dashboard error: {str(e)}")
 
 elif st.session_state.page == "Leaderboard":
     st.subheader("🏅 Top Players")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("""
-            SELECT u.name, u.points, u.referral_code, u.join_date, COUNT(rh.id) as refs
-            FROM users u LEFT JOIN referral_history rh ON u.id = rh.referrer_id
-            GROUP BY u.id ORDER BY u.points DESC LIMIT 20
-        """)
-        top = c.fetchall()
+        def _get_top(conn):
+            c = conn.cursor()
+            c.execute("""
+                SELECT u.name, u.points, u.referral_code, u.join_date, COUNT(rh.id) as refs
+                FROM users u LEFT JOIN referral_history rh ON u.id = rh.referrer_id
+                GROUP BY u.id ORDER BY u.points DESC LIMIT 20
+            """)
+            return c.fetchall()
+        top = execute_with_retry(_get_top)
         for i, u in enumerate(top[:10], 1):
             col1, col2, col3, col4 = st.columns([1,2,2,1])
             col1.write(f"#{i}")
@@ -772,7 +764,6 @@ elif st.session_state.page == "Leaderboard":
             with st.expander("Show more"):
                 for i, u in enumerate(top[10:], 11):
                     st.write(f"{i}. {u[0]} - ⭐ {u[1]} - 👥 {u[4]} refs")
-        conn.close()
     except Exception as e:
         st.error(f"Leaderboard error: {str(e)}")
 
@@ -780,13 +771,13 @@ elif st.session_state.page == "ReferralHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("📜 Your Referral History")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT u.name, rh.points_earned, rh.referral_date FROM referral_history rh JOIN users u ON rh.referred_user_id=u.id WHERE rh.referrer_id=? ORDER BY rh.referral_date DESC", (st.session_state.user_id,))
-        hist = c.fetchall()
+        def _get_hist(conn):
+            c = conn.cursor()
+            c.execute("SELECT u.name, rh.points_earned, rh.referral_date FROM referral_history rh JOIN users u ON rh.referred_user_id=u.id WHERE rh.referrer_id=? ORDER BY rh.referral_date DESC", (st.session_state.user_id,))
+            return c.fetchall()
+        hist = execute_with_retry(_get_hist)
         for h in hist:
             st.write(f"✅ {h[2][:10]} – {h[0]} → +{h[1]} pts")
-        conn.close()
     except Exception as e:
         st.error(f"Error loading history: {str(e)}")
 
@@ -794,13 +785,13 @@ elif st.session_state.page == "DiscountHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("💰 Your Discount Claims")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC", (st.session_state.user_id,))
-        hist = c.fetchall()
+        def _get_discounts(conn):
+            c = conn.cursor()
+            c.execute("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC", (st.session_state.user_id,))
+            return c.fetchall()
+        hist = execute_with_retry(_get_discounts)
         for h in hist:
             st.write(f"🎁 {h[2][:10]} – -{h[0]} pts → {h[1]} PKR")
-        conn.close()
     except Exception as e:
         st.error(f"Error: {str(e)}")
 
@@ -808,74 +799,89 @@ elif st.session_state.page == "ClickAnalytics":
     if not st.session_state.logged_in: st.stop()
     st.subheader("📊 Click Analytics")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id=?", (st.session_state.user_id,))
-        total_clicks = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (st.session_state.user_id,))
-        conversions = c.fetchone()[0]
+        def _get_clicks(conn):
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id=?", (st.session_state.user_id,))
+            total = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (st.session_state.user_id,))
+            conv = c.fetchone()[0]
+            c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
+            recent = c.fetchall()
+            return total, conv, recent
+        total_clicks, conversions, recent = execute_with_retry(_get_clicks)
         rate = (conversions/total_clicks*100) if total_clicks>0 else 0
         col1, col2, col3 = st.columns(3)
         col1.metric("👆 Clicks", total_clicks)
         col2.metric("✅ Signups", conversions)
         col3.metric("📈 Rate", f"{rate:.1f}%")
-        c.execute("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,))
-        recent = c.fetchall()
         for r in recent:
             status = "✅ Converted" if r[1] else "⏳ Pending"
             st.write(f"{r[0]} → {status}")
-        conn.close()
     except Exception as e:
         st.error(f"Analytics error: {str(e)}")
 
 elif st.session_state.page == "RepairCategories":
     st.subheader("🔧 Report a Repair Issue")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT id, category_name, description FROM repair_categories")
-        cats = c.fetchall()
+        def _get_cats(conn):
+            c = conn.cursor()
+            c.execute("SELECT id, category_name, description FROM repair_categories")
+            return c.fetchall()
+        cats = execute_with_retry(_get_cats)
         for cat in cats:
             with st.expander(cat[1]):
                 st.write(cat[2])
                 if st.session_state.logged_in:
                     if st.button("Report this issue", key=f"rep_{cat[0]}"):
-                        c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
-                                  (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                        conn.commit()
+                        def _report(conn):
+                            c = conn.cursor()
+                            c.execute("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
+                                      (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                            conn.commit()
+                        execute_with_retry(_report)
                         st.success("Issue reported! We'll contact you.")
                 else:
                     st.caption("Login to report")
         if st.session_state.logged_in:
             st.markdown("---")
             st.subheader("Your Reported Issues")
-            c.execute("SELECT rc.category_name, us.selection_date FROM user_repair_selections us JOIN repair_categories rc ON us.category_id=rc.id WHERE us.user_id=? ORDER BY us.selection_date DESC LIMIT 5", (st.session_state.user_id,))
-            for r in c.fetchall():
+            def _get_reports(conn):
+                c = conn.cursor()
+                c.execute("SELECT rc.category_name, us.selection_date FROM user_repair_selections us JOIN repair_categories rc ON us.category_id=rc.id WHERE us.user_id=? ORDER BY us.selection_date DESC LIMIT 5", (st.session_state.user_id,))
+                return c.fetchall()
+            reports = execute_with_retry(_get_reports)
+            for r in reports:
                 st.write(f"📌 {r[1][:10]}: {r[0]}")
-        conn.close()
     except Exception as e:
         st.error(f"Error: {str(e)}")
 
 elif st.session_state.page == "Store":
     st.subheader("🛒 Points Store")
     try:
-        conn = safe_db_operation(get_db_connection)
-        c = conn.cursor()
-        c.execute("SELECT id, item_name, points_required, description FROM store_items")
-        items = c.fetchall()
+        def _get_items(conn):
+            c = conn.cursor()
+            c.execute("SELECT id, item_name, points_required, description FROM store_items")
+            return c.fetchall()
+        items = execute_with_retry(_get_items)
         if st.session_state.logged_in:
-            c.execute("SELECT points FROM users WHERE id=?", (st.session_state.user_id,))
-            points = c.fetchone()[0]
+            def _get_points(conn):
+                c = conn.cursor()
+                c.execute("SELECT points FROM users WHERE id=?", (st.session_state.user_id,))
+                return c.fetchone()[0]
+            points = execute_with_retry(_get_points)
             st.info(f"Your Points: {points}")
             for item in items:
                 with st.container():
                     st.markdown(f"**{item[1]}** – {item[2]} ({item[2]} points)")
                     if points >= item[2]:
                         if st.button(f"Redeem ({item[2]} pts)", key=f"buy_{item[0]}"):
-                            c.execute("INSERT INTO store_purchases (user_id, item_id, purchase_date) VALUES (?,?,?)",
-                                      (st.session_state.user_id, item[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                            c.execute("UPDATE users SET points = points - ? WHERE id=?", (item[2], st.session_state.user_id))
-                            conn.commit()
+                            def _redeem(conn):
+                                c = conn.cursor()
+                                c.execute("INSERT INTO store_purchases (user_id, item_id, purchase_date) VALUES (?,?,?)",
+                                          (st.session_state.user_id, item[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                c.execute("UPDATE users SET points = points - ? WHERE id=?", (item[2], st.session_state.user_id))
+                                conn.commit()
+                            execute_with_retry(_redeem)
                             add_notification(st.session_state.user_id, f"🛒 You redeemed {item[1]}")
                             st.success(f"Redeemed {item[1]}! Show at shop.")
                             st.rerun()
@@ -883,7 +889,6 @@ elif st.session_state.page == "Store":
                         st.button(f"Need {item[2]-points} more pts", disabled=True, key=f"need_{item[0]}")
         else:
             st.warning("Login to redeem items.")
-        conn.close()
     except Exception as e:
         st.error(f"Store error: {str(e)}")
 
@@ -893,8 +898,9 @@ elif st.session_state.page == "AdminPanel":
         st.stop()
     st.success("👑 Admin Panel")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Users", "Export", "Upload CSV", "Bulk Points", "Clicks Report", "Repair Reports"])
+    
     try:
-        conn = safe_db_operation(get_db_connection)
+        conn = get_db_connection()
         c = conn.cursor()
     except Exception as e:
         st.error(f"Cannot connect to database: {str(e)}")
@@ -939,12 +945,12 @@ elif st.session_state.page == "AdminPanel":
                 added = skipped = 0
                 for _, row in df.iterrows():
                     mobile = str(row.get("mobile", ""))
-                    if not mobile:
-                        continue
+                    if not mobile: continue
                     c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
                     if not c.fetchone():
+                        new_code = generate_unique_code(conn)
                         c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                  (row.get("name",""), mobile, hash_password("temp123"), generate_unique_code(conn), int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                  (row.get("name",""), mobile, hash_password("temp123"), new_code, int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         added += 1
                     else:
                         skipped += 1
@@ -971,7 +977,3 @@ elif st.session_state.page == "AdminPanel":
                 st.write(f"{r[0]} ({r[1]}) – {r[2]} – {r[3][:16]}")
     if conn:
         conn.close()
-
-# ========== CLEANUP ==========
-import atexit
-atexit.register(close_all_connections)
