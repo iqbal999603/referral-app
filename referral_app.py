@@ -114,7 +114,7 @@ def generate_unique_code():
         if not existing:
             return code
 
-# ========== DATABASE INITIALIZATION (NOW hash_password EXISTS) ==========
+# ========== DATABASE INITIALIZATION ==========
 def init_database():
     execute_query("""CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, mobile TEXT UNIQUE, password TEXT,
@@ -151,6 +151,7 @@ def init_database():
     execute_query("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)", commit=True)
     execute_query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)", commit=True)
     
+    # Seed store items
     count = execute_query("SELECT COUNT(*) FROM store_items", fetch=True)[0][0]
     if count == 0:
         items = [
@@ -162,6 +163,7 @@ def init_database():
         for item in items:
             execute_query("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", item, commit=True)
     
+    # Seed repair categories
     cat_count = execute_query("SELECT COUNT(*) FROM repair_categories", fetch=True)[0][0]
     if cat_count == 0:
         cats = [
@@ -177,6 +179,7 @@ def init_database():
         for cat in cats:
             execute_query("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", cat, commit=True)
     
+    # Ensure official account
     official = execute_query("SELECT id FROM users WHERE referral_code='ALIOFFICIAL'", fetch=True)
     if not official:
         hashed = hash_password("admin123")
@@ -184,6 +187,7 @@ def init_database():
                       ("🏆 Ali Mobile Official", "03000000000", hashed, "ALIOFFICIAL", 0,
                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
     
+    # Add streak column if missing (migration)
     cols = execute_query("PRAGMA table_info(daily_bonus)", fetch=True)
     if 'streak' not in [c[1] for c in cols]:
         execute_query("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1", commit=True)
@@ -351,7 +355,7 @@ if 'page' not in st.session_state:
 # Call this after session state is ready
 track_referral_click()
 
-# ========== UI ==========
+# ========== UI HEADER ==========
 st.markdown("""
 <div style="text-align:center; padding:20px; background:linear-gradient(135deg, #121212, #1e1e2f); border-radius:20px; border:1px solid #ff9f43; margin-bottom:20px;">
     <h1 class="neon-text"> Ali Mobile Repair  Referral System</h1>
@@ -360,7 +364,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Navigation
+# ========== NAVIGATION ==========
 page_map = {
     "🏠 Home": "Home", "✨ Register": "Register", "🔐 Login": "Login",
     "🏆 Dashboard / Profile": "Dashboard", "🏅 Leaderboard": "Leaderboard",
@@ -383,7 +387,7 @@ with st.sidebar:
         st.session_state.page = page_map[selected]
         st.rerun()
 
-# Notifications
+# ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
     notifs = execute_query("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
                            (st.session_state.user_id,), fetch=True)
@@ -674,46 +678,11 @@ elif st.session_state.page == "AdminPanel":
         df = pd.DataFrame(df_data, columns=["ID","Name","Mobile","Code","Points","Referred By","Join Date"])
         st.download_button("Download CSV", df.to_csv(index=False).encode(), "users.csv")
     with tab3:
-        uploaded = st.file_uploader("Upload CSV")
-        if uploaded:
-            df = pd.read_csv(uploaded)
-            if 'موبائل' in df.columns:
-                df.rename(columns={'موبائل': 'mobile', 'نام': 'name'}, inplace=True)
-            if 'mobile' in df.columns:
-                added = 0
-                for _, row in df.iterrows():
-                    mob = str(row.get("mobile", ""))
-                    if not mob:
-                        continue
-                    existing = execute_query("SELECT id FROM users WHERE mobile=?", (mob,), fetch=True)
-                    if not existing:
-                        new_code = generate_unique_code()
-                        hashed = hash_password("temp123")
-                        execute_query("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                      (row.get("name",""), mob, hashed, new_code, int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
-                        added += 1
-                st.success(f"Added {added} users.")
-    with tab4:
-        pts = st.number_input("Points to add to all", min_value=0, step=50)
-        if st.button("Add to All"):
-            execute_query("UPDATE users SET points = points + ?", (pts,), commit=True)
-            st.success(f"Added {pts} points to everyone.")
-    with tab5:
-        clicks = execute_query("SELECT u.name, rc.clicked_at, rc.is_converted FROM referral_clicks rc JOIN users u ON rc.referrer_id=u.id ORDER BY rc.clicked_at DESC", fetch=True)
-        for cl in clicks:
-            st.write(f"{cl[0]} → {cl[1]} → {'Converted' if cl[2] else 'Pending'}")
-    with tab6:
-        reports = execute_query("SELECT u.name, u.mobile, rc.category_name, us.selection_date FROM user_repair_selections us JOIN users u ON us.user_id=u.id JOIN repair_categories rc ON us.category_id=rc.id ORDER BY us.selection_date DESC", fetch=True)
-        for r in reports:
-            st.write(f"{r[0]} ({r[1]}) – {r[2]} – {r[3][:16]}")
-    with tab7:
-        st.warning("⚠️ This tool will delete the entire database and recreate it. All user data will be lost!")
-        if st.button("🔥 Force Delete & Recreate Database (Admin Only)"):
-            try:
-                if os.path.exists('referral_game.db'):
-                    os.remove('referral_game.db')
-                st.success("Database deleted. Refreshing...")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not delete: {e}. Please delete manually via Manage app > Files.")
+        st.subheader("📂 CSV Upload Instructions")
+        st.markdown("""
+        **CSV Format Requirements:**
+        - `name` (or `نام`) : Full name
+        - `mobile` (or `موبائل`) : Mobile number (unique)
+        - `points` (optional, default 0) : Starting points
+        
+        Example:
