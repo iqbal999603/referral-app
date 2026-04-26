@@ -9,7 +9,7 @@ import pandas as pd
 import urllib.parse
 
 # ========== PAGE CONFIG ==========
-st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="🎮", layout="wide")
+st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
 
 # ========== GAMING THEME (NEON DARK) ==========
 st.markdown("""
@@ -386,7 +386,7 @@ if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown("""
         <div class="gradient-card">
-            <h2>Welcome to the Referral System!</h2>
+            <h2>Welcome to the Referral System</h2>
             <p>Join now and earn points by referring friends. Spin the wheel, earn badges, and redeem awesome prizes!</p>
             <p><strong>💡 Use referral code <span style="color:#ff9f43;">ALIOFFICIAL</span> to start</strong></p>
         </div>
