@@ -331,7 +331,7 @@ if 'page' not in st.session_state:
 # ========== TOP HEADER ==========
 st.markdown("""
 <div style="text-align:center; padding:20px; background:linear-gradient(135deg, #121212, #1e1e2f); border-radius:20px; border:1px solid #ff9f43; margin-bottom:20px;">
-    <h1 class="neon-text">🎮 Ali Mobile Repair – Referral Race</h1>
+    <h1 class="neon-text"> Ali Mobile Repair – Referral System</h1>
     <p style="color:#ff9f43;">Ali Laal Road, Layyah | 📞 03006762827</p>
     <p style="color:#e0e0e0;">⚡ Race to the Top! Refer, Earn, Spin & Win!</p>
 </div>
@@ -386,7 +386,7 @@ if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown("""
         <div class="gradient-card">
-            <h2>🎉 Welcome to the Referral Race!</h2>
+            <h2>🎉 Welcome to the Referral System!</h2>
             <p>Join now and earn points by referring friends. Spin the wheel, earn badges, and redeem awesome prizes!</p>
             <p><strong>💡 Use referral code <span style="color:#ff9f43;">ALIOFFICIAL</span> to start</strong></p>
         </div>
