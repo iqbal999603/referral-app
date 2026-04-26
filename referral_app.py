@@ -50,9 +50,29 @@ except:
     st.error("⚠️ Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
     st.stop()
 
-# ========== DATABASE FUNCTIONS (no caching - each call opens and closes) ==========
+# ========== HELPER FUNCTIONS (DEFINED FIRST) ==========
+def hash_password(pwd):
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
+    return salt.hex() + ':' + dk.hex()
+
+def verify_password(stored, provided):
+    try:
+        salt_hex, dk_hex = stored.split(':')
+        salt = bytes.fromhex(salt_hex)
+        new_dk = hashlib.pbkdf2_hmac('sha256', provided.encode(), salt, 100000)
+        return new_dk.hex() == dk_hex
+    except:
+        return False
+
+def get_level(points):
+    if points < 100: return ("Bronze", "#cd7f32")
+    elif points < 300: return ("Silver", "#c0c0c0")
+    elif points < 600: return ("Gold", "#ffd700")
+    else: return ("Diamond", "#b9f2ff")
+
+# ========== DATABASE FUNCTIONS ==========
 def get_new_connection():
-    """Create a brand new database connection (not cached)."""
     conn = sqlite3.connect('referral_game.db', timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=60000")
@@ -61,7 +81,6 @@ def get_new_connection():
     return conn
 
 def execute_query(query, params=(), fetch=False, commit=False, retries=5):
-    """Execute a query with retry, always using a fresh connection."""
     for attempt in range(retries):
         conn = None
         try:
@@ -84,14 +103,19 @@ def execute_query(query, params=(), fetch=False, commit=False, retries=5):
             else:
                 raise
         finally:
-            if conn:
+            if conn and not fetch:
                 conn.close()
     raise Exception("Database busy after retries. Use Admin -> Force Repair Database.")
 
-# ========== INITIAL DATABASE SETUP ==========
+def generate_unique_code():
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        existing = execute_query("SELECT id FROM users WHERE referral_code=?", (code,), fetch=True)
+        if not existing:
+            return code
+
+# ========== DATABASE INITIALIZATION (NOW hash_password EXISTS) ==========
 def init_database():
-    """Create tables and seed data (runs once at startup)."""
-    # Create tables
     execute_query("""CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, mobile TEXT UNIQUE, password TEXT,
         referral_code TEXT UNIQUE, points INTEGER DEFAULT 0, referred_by_id INTEGER,
@@ -123,12 +147,10 @@ def init_database():
     execute_query("""CREATE TABLE IF NOT EXISTS store_purchases (
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, item_id INTEGER, purchase_date TEXT)""", commit=True)
     
-    # Indexes
     execute_query("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)", commit=True)
     execute_query("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)", commit=True)
     execute_query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)", commit=True)
     
-    # Seed store items
     count = execute_query("SELECT COUNT(*) FROM store_items", fetch=True)[0][0]
     if count == 0:
         items = [
@@ -140,7 +162,6 @@ def init_database():
         for item in items:
             execute_query("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", item, commit=True)
     
-    # Seed repair categories
     cat_count = execute_query("SELECT COUNT(*) FROM repair_categories", fetch=True)[0][0]
     if cat_count == 0:
         cats = [
@@ -156,7 +177,6 @@ def init_database():
         for cat in cats:
             execute_query("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", cat, commit=True)
     
-    # Ensure official account
     official = execute_query("SELECT id FROM users WHERE referral_code='ALIOFFICIAL'", fetch=True)
     if not official:
         hashed = hash_password("admin123")
@@ -164,7 +184,6 @@ def init_database():
                       ("🏆 Ali Mobile Official", "03000000000", hashed, "ALIOFFICIAL", 0,
                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
     
-    # Add streak column if missing (migration)
     cols = execute_query("PRAGMA table_info(daily_bonus)", fetch=True)
     if 'streak' not in [c[1] for c in cols]:
         execute_query("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1", commit=True)
@@ -185,53 +204,22 @@ except Exception as e:
             st.error("Could not delete. Please go to Manage app > Files and delete 'referral_game.db' manually.")
     st.stop()
 
-# ========== HELPER FUNCTIONS ==========
-def hash_password(pwd):
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
-    return salt.hex() + ':' + dk.hex()
-
-def verify_password(stored, provided):
-    try:
-        salt_hex, dk_hex = stored.split(':')
-        salt = bytes.fromhex(salt_hex)
-        new_dk = hashlib.pbkdf2_hmac('sha256', provided.encode(), salt, 100000)
-        return new_dk.hex() == dk_hex
-    except:
-        return False
-
-def get_level(points):
-    if points < 100: return ("Bronze", "#cd7f32")
-    elif points < 300: return ("Silver", "#c0c0c0")
-    elif points < 600: return ("Gold", "#ffd700")
-    else: return ("Diamond", "#b9f2ff")
-
+# ========== OTHER HELPER FUNCTIONS (that use DB) ==========
 def add_notification(user_id, message):
     execute_query("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
                   (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
 
-def generate_unique_code():
-    while True:
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        existing = execute_query("SELECT id FROM users WHERE referral_code=?", (code,), fetch=True)
-        if not existing:
-            return code
-
 def register_user(name, mobile, password, ref_code):
-    # Check referrer
     referrer = execute_query("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),), fetch=True)
     if not referrer:
         return False, "Invalid referral code."
-    # Check existing mobile
     existing = execute_query("SELECT id FROM users WHERE mobile=?", (mobile,), fetch=True)
     if existing:
         return False, "Mobile already registered."
-    # Generate code
     new_code = generate_unique_code()
     hashed = hash_password(password)
     join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        # Begin transaction manually using a single connection
         conn = get_new_connection()
         conn.execute("BEGIN IMMEDIATE")
         c = conn.cursor()
@@ -246,7 +234,6 @@ def register_user(name, mobile, password, ref_code):
         conn.commit()
         conn.close()
         add_notification(referrer[0]['id'], f"🎉 New user {name} registered using your code! +50 points.")
-        # Check badges for referrer
         ref_count = execute_query("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (referrer[0]['id'],), fetch=True)[0][0]
         if ref_count == 1:
             add_notification(referrer[0]['id'], "🏅 You earned the badge: First Referral 🥉")
@@ -309,7 +296,6 @@ def get_social_urls(referral_link, code, name):
     }
 
 def delete_user(user_id):
-    # Get referrer
     ref_by = execute_query("SELECT referred_by_id FROM users WHERE id=?", (user_id,), fetch=True)
     if ref_by and ref_by[0][0]:
         pts = execute_query("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0][0], user_id), fetch=True)
@@ -335,7 +321,6 @@ def reset_password(user_id):
     add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
 
-# ========== TRACK REFERRAL CLICKS ==========
 def track_referral_click():
     params = st.query_params
     ref_code = params.get("ref")
@@ -354,8 +339,6 @@ def track_referral_click():
             pass
         st.session_state.click_tracked = True
 
-track_referral_click()
-
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -364,6 +347,9 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_code = None
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
+
+# Call this after session state is ready
+track_referral_click()
 
 # ========== UI ==========
 st.markdown("""
@@ -406,9 +392,10 @@ if st.session_state.logged_in:
             for n in notifs:
                 st.markdown(f'📢 {n[1]}')
         ids = [n[0] for n in notifs]
-        execute_query(f"UPDATE notifications SET is_read=1 WHERE id IN ({','.join('?'*len(ids))})", ids, commit=True)
+        placeholders = ','.join('?'*len(ids))
+        execute_query(f"UPDATE notifications SET is_read=1 WHERE id IN ({placeholders})", ids, commit=True)
 
-# Page rendering
+# ========== PAGE RENDERING ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown("""
@@ -690,7 +677,6 @@ elif st.session_state.page == "AdminPanel":
         uploaded = st.file_uploader("Upload CSV")
         if uploaded:
             df = pd.read_csv(uploaded)
-            # Simple normalization
             if 'موبائل' in df.columns:
                 df.rename(columns={'موبائل': 'mobile', 'نام': 'name'}, inplace=True)
             if 'mobile' in df.columns:
