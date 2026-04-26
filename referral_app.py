@@ -178,7 +178,7 @@ def init_db():
             ("🎁 500 PKR Discount", 500, "Show this at shop for 500 PKR off"),
             ("🛡️ Free Screen Guard", 300, "Get a tempered glass screen guard"),
             ("📱 Premium Phone Case", 200, "Silicone back cover (any model)"),
-            ("🔋  Bank (10000mAh)", 800, "Free power bank with repair"),
+            ("🔋 Power Bank (10000mAh)", 800, "Free power bank with repair"),
         ]
         c.executemany("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", items)
     
