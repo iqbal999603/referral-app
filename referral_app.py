@@ -352,9 +352,6 @@ if 'logged_in' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
 
-# Call this after session state is ready
-track_referral_click()
-
 # ========== UI HEADER ==========
 st.markdown("""
 <div style="text-align:center; padding:20px; background:linear-gradient(135deg, #121212, #1e1e2f); border-radius:20px; border:1px solid #ff9f43; margin-bottom:20px;">
