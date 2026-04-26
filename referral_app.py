@@ -7,6 +7,7 @@ import string
 from datetime import datetime, timedelta
 import pandas as pd
 import urllib.parse
+import time
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
@@ -109,7 +110,7 @@ def verify_password(stored, provided):
         return False
 
 def generate_unique_code(conn):
-    """Generate unique 6-character referral code (fix #5)"""
+    """Generate unique 6-character referral code"""
     while True:
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         c = conn.cursor()
@@ -119,9 +120,9 @@ def generate_unique_code(conn):
 
 @st.cache_resource
 def get_db_connection():
-    conn = sqlite3.connect('referral_game.db', check_same_thread=False)
+    conn = sqlite3.connect('referral_game.db', check_same_thread=False, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=10000")  # Increased to 10 seconds
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -139,7 +140,7 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER, referred_user_id INTEGER,
                   points_earned INTEGER, referral_date TEXT,
-                  UNIQUE(referrer_id, referred_user_id))''')  # Fix #1: prevent duplicate referral
+                  UNIQUE(referrer_id, referred_user_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, points_used INTEGER,
@@ -164,7 +165,7 @@ def init_db():
     # Game-specific tables
     c.execute('''CREATE TABLE IF NOT EXISTS daily_bonus
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER, claim_date TEXT, streak INTEGER DEFAULT 1)''')  # Fix #3: add streak column
+                  user_id INTEGER, claim_date TEXT, streak INTEGER DEFAULT 1)''')
     c.execute('''CREATE TABLE IF NOT EXISTS spin_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, points_won INTEGER, spin_date TEXT)''')
@@ -178,7 +179,7 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, item_id INTEGER, purchase_date TEXT)''')
     
-    # Indexes for performance (500 users)
+    # Indexes
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_referral_clicks_code ON referral_clicks(referral_code)")
@@ -220,7 +221,7 @@ def init_db():
 
 init_db()
 
-# ========== TRACK REFERRAL CLICKS FROM URL (Fix #2) ==========
+# ========== TRACK REFERRAL CLICKS FROM URL ==========
 def track_referral_click():
     """Check URL for ?ref=CODE and record a click if not already tracked today for this IP"""
     params = st.query_params
@@ -231,10 +232,8 @@ def track_referral_click():
         c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
         referrer = c.fetchone()
         if referrer:
-            # Get IP (dummy, but we use session to avoid duplicate clicks)
             ip = st.session_state.get("session_id", os.urandom(8).hex())
             today = datetime.now().strftime("%Y-%m-%d")
-            # Avoid duplicate clicks from same IP same day
             c.execute("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
                       (ref_code.upper(), ip, today))
             if not c.fetchone():
@@ -243,7 +242,6 @@ def track_referral_click():
                 conn.commit()
         st.session_state.click_tracked = True
 
-# Call this at the very beginning
 track_referral_click()
 
 # ========== GAME FUNCTIONS ==========
@@ -282,17 +280,12 @@ def get_level(points):
     else: return ("Diamond", "#b9f2ff")
 
 def daily_bonus_claim(user_id):
-    """Fixed streak logic (#3) – consecutive days"""
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
     c = conn.cursor()
-    
-    # Check if already claimed today
     c.execute("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today))
     if c.fetchone():
         return 0, "already_claimed"
-    
-    # Get last claim date
     c.execute("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,))
     last = c.fetchone()
     if last:
@@ -304,9 +297,7 @@ def daily_bonus_claim(user_id):
             new_streak = 1
     else:
         new_streak = 1
-    
     bonus = 5 if new_streak < 7 else 50
-    # Insert with streak
     c.execute("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak))
     c.execute("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id))
     conn.commit()
@@ -349,7 +340,6 @@ def normalize_csv_columns(df):
 def delete_user(user_id):
     conn = get_db_connection()
     c = conn.cursor()
-    # Before deleting, deduct points from referrer if any (optional but honest)
     c.execute("SELECT referred_by_id FROM users WHERE id=?", (user_id,))
     ref_by = c.fetchone()
     if ref_by and ref_by[0]:
@@ -381,6 +371,74 @@ def reset_password(user_id):
     conn.commit()
     add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
+
+# ========== REGISTRATION WITH AUTO-RETRY LOGIC ==========
+def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
+    """
+    Attempt to register user with automatic retry on database lock or timeout.
+    """
+    for attempt in range(retries):
+        conn = None
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            
+            # Validate referral code
+            c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
+            ref_user = c.fetchone()
+            if not ref_user:
+                return False, "Invalid referral code."
+            
+            # Check mobile duplicate
+            c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
+            if c.fetchone():
+                return False, "Mobile already registered."
+            
+            # Begin transaction
+            conn.execute("BEGIN IMMEDIATE")  # Locks database to avoid conflicts
+            
+            new_code = generate_unique_code(conn)
+            hashed = hash_password(password)
+            join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Insert new user
+            c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
+                      (name, mobile, hashed, new_code, 0, ref_user[0], join_date))
+            new_user_id = c.lastrowid
+            
+            # Add points to referrer and record history
+            c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
+            c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
+                      (ref_user[0], new_user_id, 50, join_date))
+            
+            # Mark click as converted
+            c.execute("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
+                      (ref_code.upper(), ref_user[0]))
+            
+            conn.commit()
+            add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
+            check_and_award_badges(ref_user[0])
+            return True, new_code
+        
+        except sqlite3.OperationalError as e:
+            if conn:
+                conn.rollback()
+            if "locked" in str(e) or "busy" in str(e):
+                if attempt < retries - 1:
+                    time.sleep(delay * (attempt + 1))  # exponential backoff
+                    continue
+                else:
+                    return False, f"Database busy. Please try again in a few seconds."
+            else:
+                return False, f"System error: {str(e)}"
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            return False, f"Unexpected error: {str(e)}"
+        finally:
+            if conn:
+                conn.close()
+    return False, "Max retries exceeded."
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -501,51 +559,13 @@ elif st.session_state.page == "Register":
             elif not ref_code:
                 st.error("Referral code is required.")
             else:
-                conn = get_db_connection()
-                c = conn.cursor()
-                c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
-                ref_user = c.fetchone()
-                if not ref_user:
-                    st.error("Invalid referral code.")
-                else:
-                    c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
-                    if c.fetchone():
-                        st.error("Mobile already registered.")
+                with st.spinner("Registering, please wait..."):
+                    success, result = register_with_retry(name, mobile, password, ref_code)
+                    if success:
+                        st.success(f"✅ Registration complete! Your referral code: {result}")
+                        st.balloons()
                     else:
-                        # === FIXED TRANSACTION (Fix #1 & #4) ===
-                        try:
-                            conn.execute("BEGIN")
-                            # Check if this referral already counted (duplicate protection)
-                            c.execute("SELECT id FROM referral_history WHERE referrer_id=? AND referred_user_id IS NULL", (ref_user[0],))
-                            # Not needed, but we will insert only after user created
-                            new_code = generate_unique_code(conn)  # Fix #5
-                            hashed = hash_password(password)
-                            join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            # Insert new user
-                            c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
-                                      (name, mobile, hashed, new_code, 0, ref_user[0], join_date))
-                            new_user_id = c.lastrowid
-                            
-                            # Add points to referrer and record referral history
-                            c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
-                            c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
-                                      (ref_user[0], new_user_id, 50, join_date))
-                            
-                            # Mark the corresponding click as converted (Fix #2)
-                            c.execute("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
-                                      (ref_code.upper(), ref_user[0]))
-                            
-                            conn.commit()
-                            add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
-                            check_and_award_badges(ref_user[0])
-                            st.success(f"✅ Registration complete! Your referral code: {new_code}")
-                            st.balloons()
-                        except Exception as e:
-                            conn.rollback()
-                            st.error(f"Registration failed due to a system error. Please try again. ({str(e)})")
-                        finally:
-                            conn.close()
+                        st.error(f"Registration failed: {result}")
 
 elif st.session_state.page == "Login":
     if st.session_state.logged_in:
@@ -611,15 +631,13 @@ elif st.session_state.page == "Dashboard":
                 st.success(f"You won {won} points!")
                 st.rerun()
 
-    # Badges
     c.execute("SELECT badge_name FROM user_badges WHERE user_id=?", (st.session_state.user_id,))
     badges = [b[0] for b in c.fetchall()]
     if badges:
         st.markdown("### 🏅 Your Badges: " + ", ".join(badges))
 
-    # Referral Link - dynamic host
+    # Referral Link
     try:
-        # Get host from streamlit's server (best effort)
         host = st.get_option("server.baseUrlPath") or "alimobile-referral.streamlit.app"
         if host.startswith("/"):
             host = host.lstrip("/")
@@ -635,7 +653,6 @@ elif st.session_state.page == "Dashboard":
         with col:
             st.markdown(f'<a href="{url}" target="_blank" class="social-share-btn {platform}">{platform.capitalize()}</a>', unsafe_allow_html=True)
 
-    # Claim Discount
     if points >= 500:
         if st.button("🎁 Claim 500 PKR Discount (500 pts)"):
             c.execute("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
