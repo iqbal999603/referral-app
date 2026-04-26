@@ -110,7 +110,6 @@ def verify_password(stored, provided):
         return False
 
 def generate_unique_code(conn):
-    """Generate unique 6-character referral code"""
     while True:
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         c = conn.cursor()
@@ -122,9 +121,35 @@ def generate_unique_code(conn):
 def get_db_connection():
     conn = sqlite3.connect('referral_game.db', check_same_thread=False, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=10000")  # Increased to 10 seconds
+    conn.execute("PRAGMA busy_timeout=10000")
     conn.row_factory = sqlite3.Row
     return conn
+
+def migrate_db():
+    """Safely add missing columns to existing tables (for backward compatibility)"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Check if daily_bonus table has 'streak' column
+    c.execute("PRAGMA table_info(daily_bonus)")
+    columns = [col[1] for col in c.fetchall()]
+    if 'streak' not in columns:
+        st.info("🔄 Upgrading database: Adding streak column to daily_bonus...")
+        c.execute("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1")
+        conn.commit()
+        st.success("✅ Database upgrade complete!")
+    
+    # Ensure UNIQUE constraint on referral_history (optional, if not exists)
+    c.execute("PRAGMA index_list(referral_history)")
+    indexes = [idx[1] for idx in c.fetchall()]
+    if 'sqlite_autoindex_referral_history_1' not in indexes:
+        # Try to create unique index to prevent duplicate referrals
+        try:
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)")
+            conn.commit()
+        except:
+            pass  # Might fail if duplicates exist; ignore.
+    conn.close()
 
 def init_db():
     conn = get_db_connection()
@@ -139,8 +164,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER, referred_user_id INTEGER,
-                  points_earned INTEGER, referral_date TEXT,
-                  UNIQUE(referrer_id, referred_user_id))''')
+                  points_earned INTEGER, referral_date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, points_used INTEGER,
@@ -218,12 +242,14 @@ def init_db():
                   ("🏆 Ali Mobile Official", "03000000000", hash_password("admin123"), "ALIOFFICIAL", 0,
                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     conn.commit()
+    conn.close()
 
+# Run initialization and migration
 init_db()
+migrate_db()   # <-- This will add any missing columns without deleting data
 
 # ========== TRACK REFERRAL CLICKS FROM URL ==========
 def track_referral_click():
-    """Check URL for ?ref=CODE and record a click if not already tracked today for this IP"""
     params = st.query_params
     ref_code = params.get("ref")
     if ref_code and not st.session_state.get("click_tracked", False):
@@ -372,46 +398,37 @@ def reset_password(user_id):
     add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
 
-# ========== REGISTRATION WITH AUTO-RETRY LOGIC ==========
+# ========== REGISTRATION WITH AUTO-RETRY ==========
 def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
-    """
-    Attempt to register user with automatic retry on database lock or timeout.
-    """
     for attempt in range(retries):
         conn = None
         try:
             conn = get_db_connection()
             c = conn.cursor()
             
-            # Validate referral code
             c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
             ref_user = c.fetchone()
             if not ref_user:
                 return False, "Invalid referral code."
             
-            # Check mobile duplicate
             c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
             if c.fetchone():
                 return False, "Mobile already registered."
             
-            # Begin transaction
-            conn.execute("BEGIN IMMEDIATE")  # Locks database to avoid conflicts
+            conn.execute("BEGIN IMMEDIATE")
             
             new_code = generate_unique_code(conn)
             hashed = hash_password(password)
             join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Insert new user
             c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
                       (name, mobile, hashed, new_code, 0, ref_user[0], join_date))
             new_user_id = c.lastrowid
             
-            # Add points to referrer and record history
             c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
             c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
                       (ref_user[0], new_user_id, 50, join_date))
             
-            # Mark click as converted
             c.execute("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
                       (ref_code.upper(), ref_user[0]))
             
@@ -425,7 +442,7 @@ def register_with_retry(name, mobile, password, ref_code, retries=3, delay=1):
                 conn.rollback()
             if "locked" in str(e) or "busy" in str(e):
                 if attempt < retries - 1:
-                    time.sleep(delay * (attempt + 1))  # exponential backoff
+                    time.sleep(delay * (attempt + 1))
                     continue
                 else:
                     return False, f"Database busy. Please try again in a few seconds."
