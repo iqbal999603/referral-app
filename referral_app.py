@@ -178,7 +178,7 @@ def init_db():
             ("🎁 500 PKR Discount", 500, "Show this at shop for 500 PKR off"),
             ("📱 Premium Mobile Cover", 300, "Back cover "),
             ("📱 Free Glass Protector OG", 200, "Glass screen guard (any model)"),
-            ("🔋 MP3", 800, "Free Sweet Sound"),
+            ("🎵 MP3", 800, "Free Sweet Sound Song Transfer"),
         ]
         c.executemany("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", items)
     
