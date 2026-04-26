@@ -176,9 +176,9 @@ def init_db():
     if c.fetchone()[0] == 0:
         items = [
             ("🎁 500 PKR Discount", 500, "Show this at shop for 500 PKR off"),
-            ("🛡️ Free Screen Guard", 300, "Get a tempered glass screen guard"),
-            ("📱 Premium Phone Case", 200, "Silicone back cover (any model)"),
-            ("🔋 Power Bank (10000mAh)", 800, "Free power bank with repair"),
+            ("📱 Premium Mobile Cover", 300, "Back cover "),
+            ("📱 Free Glass Protector OG", 200, "Glass screen guard (any model)"),
+            ("🔋 MP3", 800, "Free Sweet Sound"),
         ]
         c.executemany("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", items)
     
