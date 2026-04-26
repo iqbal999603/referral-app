@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import urllib.parse
 import time
-import atexit
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
@@ -51,23 +50,22 @@ except:
     st.error("⚠️ Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
     st.stop()
 
-# ========== DATABASE SETUP (with caching and retry) ==========
-@st.cache_resource
-def get_db_connection():
-    """Return a new database connection with WAL and timeout."""
-    conn = sqlite3.connect('referral_game.db', timeout=30, check_same_thread=False)
+# ========== DATABASE FUNCTIONS (no caching - each call opens and closes) ==========
+def get_new_connection():
+    """Create a brand new database connection (not cached)."""
+    conn = sqlite3.connect('referral_game.db', timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=60000")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.row_factory = sqlite3.Row
     return conn
 
-def execute_with_retry(query, params=(), fetch=False, commit=False, max_retries=5):
-    """Execute a query with automatic retry on lock."""
-    for attempt in range(max_retries):
+def execute_query(query, params=(), fetch=False, commit=False, retries=5):
+    """Execute a query with retry, always using a fresh connection."""
+    for attempt in range(retries):
         conn = None
         try:
-            conn = get_db_connection()
+            conn = get_new_connection()
             cursor = conn.cursor()
             cursor.execute(query, params)
             if commit:
@@ -86,111 +84,108 @@ def execute_with_retry(query, params=(), fetch=False, commit=False, max_retries=
             else:
                 raise
         finally:
-            if conn and not fetch:  # Only close if we didn't need the connection later
+            if conn:
                 conn.close()
-    raise Exception("Database is locked after multiple retries. Please use Admin -> Force Repair Database.")
+    raise Exception("Database busy after retries. Use Admin -> Force Repair Database.")
 
-def init_db_once():
-    """Initialize tables and data – called only once."""
-    try:
-        # Create tables
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS users
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, mobile TEXT UNIQUE, password TEXT,
-             referral_code TEXT UNIQUE, points INTEGER DEFAULT 0, referred_by_id INTEGER,
-             join_date TEXT, ip_address TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS referral_history
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER, referred_user_id INTEGER,
-             points_earned INTEGER, referral_date TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS discount_history
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, points_used INTEGER,
-             discount_amount REAL, claim_date TEXT, status TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS notifications
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, message TEXT,
-             is_read INTEGER DEFAULT 0, created_at TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS repair_categories
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT, description TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS user_repair_selections
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, category_id INTEGER, selection_date TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS referral_clicks
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, referral_code TEXT, referrer_id INTEGER,
-             ip_address TEXT, clicked_at TEXT, is_converted INTEGER DEFAULT 0)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS daily_bonus
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, claim_date TEXT, streak INTEGER DEFAULT 1)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS spin_history
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, points_won INTEGER, spin_date TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS user_badges
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, badge_name TEXT, earned_date TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS store_items
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, points_required INTEGER, description TEXT)""", commit=True)
-        execute_with_retry("""CREATE TABLE IF NOT EXISTS store_purchases
-            (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, item_id INTEGER, purchase_date TEXT)""", commit=True)
-        
-        # Indexes
-        execute_with_retry("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)", commit=True)
-        execute_with_retry("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)", commit=True)
-        execute_with_retry("CREATE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)", commit=True)
-        
-        # Seed store items
-        items = execute_with_retry("SELECT COUNT(*) FROM store_items", fetch=True)[0][0]
-        if items == 0:
-            execute_with_retry("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)",
-                               ("🎁 500 PKR Discount", 500, "Show this at shop for 500 PKR off"), commit=True)
-            execute_with_retry("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)",
-                               ("🛡️ Free Screen Guard", 300, "Get a tempered glass screen guard"), commit=True)
-            execute_with_retry("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)",
-                               ("📱 Premium Phone Case", 200, "Silicone back cover (any model)"), commit=True)
-            execute_with_retry("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)",
-                               ("🔋 Power Bank (10000mAh)", 800, "Free power bank with repair"), commit=True)
-        
-        # Seed repair categories
-        cats = execute_with_retry("SELECT COUNT(*) FROM repair_categories", fetch=True)[0][0]
-        if cats == 0:
-            cat_list = [
-                ("🔋 Charging not working", "Phone not charging, battery or port issue"),
-                ("📱 Broken Screen", "Display cracked, touch not working"),
-                ("🔊 No sound", "Speaker or headphone jack issue"),
-                ("🐌 Phone hanging", "Slow performance, frequent freezing"),
-                ("⚡ Battery drains fast", "Battery health degraded"),
-                ("📶 WiFi/Bluetooth not working", "Connectivity issues"),
-                ("📷 Camera not working", "Black screen or crash"),
-                ("🔥 Phone overheating", "Overheating during use or charging")
-            ]
-            for cat in cat_list:
-                execute_with_retry("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", cat, commit=True)
-        
-        # Ensure official account
-        official = execute_with_retry("SELECT id FROM users WHERE referral_code='ALIOFFICIAL'", fetch=True)
-        if not official:
-            hashed = hash_password("admin123")
-            execute_with_retry("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                               ("🏆 Ali Mobile Official", "03000000000", hashed, "ALIOFFICIAL", 0,
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
-        
-        # Add streak column if missing
-        columns = execute_with_retry("PRAGMA table_info(daily_bonus)", fetch=True)
-        col_names = [col[1] for col in columns]
-        if 'streak' not in col_names:
-            execute_with_retry("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1", commit=True)
-    except Exception as e:
-        st.error(f"Init failed: {e}. Please use Admin -> Force Repair Database.")
-        raise
+# ========== INITIAL DATABASE SETUP ==========
+def init_database():
+    """Create tables and seed data (runs once at startup)."""
+    # Create tables
+    execute_query("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, mobile TEXT UNIQUE, password TEXT,
+        referral_code TEXT UNIQUE, points INTEGER DEFAULT 0, referred_by_id INTEGER,
+        join_date TEXT, ip_address TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS referral_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER, referred_user_id INTEGER,
+        points_earned INTEGER, referral_date TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS discount_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, points_used INTEGER,
+        discount_amount REAL, claim_date TEXT, status TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, message TEXT,
+        is_read INTEGER DEFAULT 0, created_at TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS repair_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, category_name TEXT, description TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS user_repair_selections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, category_id INTEGER, selection_date TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS referral_clicks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, referral_code TEXT, referrer_id INTEGER,
+        ip_address TEXT, clicked_at TEXT, is_converted INTEGER DEFAULT 0)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS daily_bonus (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, claim_date TEXT, streak INTEGER DEFAULT 1)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS spin_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, points_won INTEGER, spin_date TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS user_badges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, badge_name TEXT, earned_date TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS store_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, points_required INTEGER, description TEXT)""", commit=True)
+    execute_query("""CREATE TABLE IF NOT EXISTS store_purchases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, item_id INTEGER, purchase_date TEXT)""", commit=True)
+    
+    # Indexes
+    execute_query("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)", commit=True)
+    execute_query("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)", commit=True)
+    execute_query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)", commit=True)
+    
+    # Seed store items
+    count = execute_query("SELECT COUNT(*) FROM store_items", fetch=True)[0][0]
+    if count == 0:
+        items = [
+            ("🎁 500 PKR Discount", 500, "Show this at shop for 500 PKR off"),
+            ("🛡️ Free Screen Guard", 300, "Get a tempered glass screen guard"),
+            ("📱 Premium Phone Case", 200, "Silicone back cover (any model)"),
+            ("🔋 Power Bank (10000mAh)", 800, "Free power bank with repair"),
+        ]
+        for item in items:
+            execute_query("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", item, commit=True)
+    
+    # Seed repair categories
+    cat_count = execute_query("SELECT COUNT(*) FROM repair_categories", fetch=True)[0][0]
+    if cat_count == 0:
+        cats = [
+            ("🔋 Charging not working", "Phone not charging, battery or port issue"),
+            ("📱 Broken Screen", "Display cracked, touch not working"),
+            ("🔊 No sound", "Speaker or headphone jack issue"),
+            ("🐌 Phone hanging", "Slow performance, frequent freezing"),
+            ("⚡ Battery drains fast", "Battery health degraded"),
+            ("📶 WiFi/Bluetooth not working", "Connectivity issues"),
+            ("📷 Camera not working", "Black screen or crash"),
+            ("🔥 Phone overheating", "Overheating during use or charging")
+        ]
+        for cat in cats:
+            execute_query("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", cat, commit=True)
+    
+    # Ensure official account
+    official = execute_query("SELECT id FROM users WHERE referral_code='ALIOFFICIAL'", fetch=True)
+    if not official:
+        hashed = hash_password("admin123")
+        execute_query("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
+                      ("🏆 Ali Mobile Official", "03000000000", hashed, "ALIOFFICIAL", 0,
+                       datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+    
+    # Add streak column if missing (migration)
+    cols = execute_query("PRAGMA table_info(daily_bonus)", fetch=True)
+    if 'streak' not in [c[1] for c in cols]:
+        execute_query("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1", commit=True)
 
 # Run init once at startup
 try:
-    init_db_once()
+    init_database()
 except Exception as e:
-    st.error(f"Database initialization error: {str(e)}")
-    st.info("Click below to repair automatically or delete the database file via Manage app > Files.")
+    st.error(f"Database init error: {e}")
+    st.info("Click below to repair automatically (will delete old database and recreate).")
     if st.button("🛠️ Force Repair Database (Admin Only)"):
         try:
-            os.remove('referral_game.db')
+            if os.path.exists('referral_game.db'):
+                os.remove('referral_game.db')
             st.success("Database deleted. Please refresh the page.")
             st.stop()
         except:
-            st.error("Could not delete database. Please delete manually.")
+            st.error("Could not delete. Please go to Manage app > Files and delete 'referral_game.db' manually.")
     st.stop()
 
-# ========== HELPER FUNCTIONS (using execute_with_retry) ==========
+# ========== HELPER FUNCTIONS ==========
 def hash_password(pwd):
     salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
@@ -205,97 +200,76 @@ def verify_password(stored, provided):
     except:
         return False
 
-def generate_unique_code():
-    while True:
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        existing = execute_with_retry("SELECT id FROM users WHERE referral_code=?", (code,), fetch=True)
-        if not existing:
-            return code
-
-def add_notification(user_id, message):
-    execute_with_retry("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
-                       (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
-
 def get_level(points):
     if points < 100: return ("Bronze", "#cd7f32")
     elif points < 300: return ("Silver", "#c0c0c0")
     elif points < 600: return ("Gold", "#ffd700")
     else: return ("Diamond", "#b9f2ff")
 
-# ========== TRACK REFERRAL CLICKS ==========
-def track_referral_click():
-    params = st.query_params
-    ref_code = params.get("ref")
-    if ref_code and not st.session_state.get("click_tracked", False):
-        try:
-            referrer = execute_with_retry("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),), fetch=True)
-            if referrer:
-                ip = st.session_state.get("session_id", os.urandom(8).hex())
-                today = datetime.now().strftime("%Y-%m-%d")
-                existing = execute_with_retry("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
-                                               (ref_code.upper(), ip, today), fetch=True)
-                if not existing:
-                    execute_with_retry("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,0)",
-                                       (ref_code.upper(), referrer[0]['id'], ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
-        except:
-            pass
-        st.session_state.click_tracked = True
+def add_notification(user_id, message):
+    execute_query("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
+                  (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
 
-track_referral_click()
+def generate_unique_code():
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        existing = execute_query("SELECT id FROM users WHERE referral_code=?", (code,), fetch=True)
+        if not existing:
+            return code
 
-# ========== MAIN FUNCTIONS ==========
 def register_user(name, mobile, password, ref_code):
     # Check referrer
-    referrer = execute_with_retry("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),), fetch=True)
+    referrer = execute_query("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),), fetch=True)
     if not referrer:
         return False, "Invalid referral code."
-    # Check mobile exists
-    existing = execute_with_retry("SELECT id FROM users WHERE mobile=?", (mobile,), fetch=True)
+    # Check existing mobile
+    existing = execute_query("SELECT id FROM users WHERE mobile=?", (mobile,), fetch=True)
     if existing:
         return False, "Mobile already registered."
-    # Generate unique code
+    # Generate code
     new_code = generate_unique_code()
     hashed = hash_password(password)
     join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Transaction (using retry)
     try:
-        # Insert user
-        execute_with_retry("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
-                           (name, mobile, hashed, new_code, 0, referrer[0]['id'], join_date), commit=True)
-        new_user_id = execute_with_retry("SELECT last_insert_rowid()", fetch=True)[0][0]
-        # Add points to referrer
-        execute_with_retry("UPDATE users SET points = points + 50 WHERE id=?", (referrer[0]['id'],), commit=True)
-        # Record referral history
-        execute_with_retry("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
-                           (referrer[0]['id'], new_user_id, 50, join_date), commit=True)
-        # Mark click as converted
-        execute_with_retry("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
-                           (ref_code.upper(), referrer[0]['id']), commit=True)
+        # Begin transaction manually using a single connection
+        conn = get_new_connection()
+        conn.execute("BEGIN IMMEDIATE")
+        c = conn.cursor()
+        c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
+                  (name, mobile, hashed, new_code, 0, referrer[0]['id'], join_date))
+        new_id = c.lastrowid
+        c.execute("UPDATE users SET points = points + 50 WHERE id=?", (referrer[0]['id'],))
+        c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
+                  (referrer[0]['id'], new_id, 50, join_date))
+        c.execute("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
+                  (ref_code.upper(), referrer[0]['id']))
+        conn.commit()
+        conn.close()
         add_notification(referrer[0]['id'], f"🎉 New user {name} registered using your code! +50 points.")
-        # Award badges for referrer
-        ref_count = execute_with_retry("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (referrer[0]['id'],), fetch=True)[0][0]
+        # Check badges for referrer
+        ref_count = execute_query("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (referrer[0]['id'],), fetch=True)[0][0]
         if ref_count == 1:
             add_notification(referrer[0]['id'], "🏅 You earned the badge: First Referral 🥉")
-            execute_with_retry("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
-                               (referrer[0]['id'], "First Referral 🥉", datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+            execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
+                          (referrer[0]['id'], "First Referral 🥉", join_date), commit=True)
         elif ref_count == 5:
             add_notification(referrer[0]['id'], "🏅 You earned the badge: 5 Referrals 🥈")
-            execute_with_retry("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
-                               (referrer[0]['id'], "5 Referrals 🥈", datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+            execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
+                          (referrer[0]['id'], "5 Referrals 🥈", join_date), commit=True)
         elif ref_count == 10:
             add_notification(referrer[0]['id'], "🏅 You earned the badge: 10 Referrals 🥇")
-            execute_with_retry("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
-                               (referrer[0]['id'], "10 Referrals 🥇", datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+            execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
+                          (referrer[0]['id'], "10 Referrals 🥇", join_date), commit=True)
         return True, new_code
     except Exception as e:
-        return False, f"Registration error: {str(e)}"
+        return False, f"Registration error: {e}"
 
 def daily_bonus_claim(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
-    claimed = execute_with_retry("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today), fetch=True)
+    claimed = execute_query("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today), fetch=True)
     if claimed:
         return 0, "already_claimed"
-    last = execute_with_retry("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,), fetch=True)
+    last = execute_query("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,), fetch=True)
     if last:
         last_date = datetime.strptime(last[0][0], "%Y-%m-%d").date()
         yesterday = datetime.now().date() - timedelta(days=1)
@@ -306,20 +280,20 @@ def daily_bonus_claim(user_id):
     else:
         new_streak = 1
     bonus = 5 if new_streak < 7 else 50
-    execute_with_retry("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak), commit=True)
-    execute_with_retry("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id), commit=True)
+    execute_query("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak), commit=True)
+    execute_query("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id), commit=True)
     return bonus, "success"
 
 def spin_wheel(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
-    spun = execute_with_retry("SELECT id FROM spin_history WHERE user_id=? AND spin_date=?", (user_id, today), fetch=True)
+    spun = execute_query("SELECT id FROM spin_history WHERE user_id=? AND spin_date=?", (user_id, today), fetch=True)
     if spun:
         return 0, "already_spun"
     prizes = [5, 10, 20, 30, 50, 100, 200]
     weights = [40, 25, 15, 10, 5, 3, 2]
     won = random.choices(prizes, weights=weights, k=1)[0]
-    execute_with_retry("INSERT INTO spin_history (user_id, points_won, spin_date) VALUES (?,?,?)", (user_id, won, today), commit=True)
-    execute_with_retry("UPDATE users SET points = points + ? WHERE id=?", (won, user_id), commit=True)
+    execute_query("INSERT INTO spin_history (user_id, points_won, spin_date) VALUES (?,?,?)", (user_id, won, today), commit=True)
+    execute_query("UPDATE users SET points = points + ? WHERE id=?", (won, user_id), commit=True)
     add_notification(user_id, f"🎰 You won {won} points from the lucky wheel!")
     return won, "success"
 
@@ -335,31 +309,52 @@ def get_social_urls(referral_link, code, name):
     }
 
 def delete_user(user_id):
-    # Get referrer to deduct points
-    ref_by = execute_with_retry("SELECT referred_by_id FROM users WHERE id=?", (user_id,), fetch=True)
+    # Get referrer
+    ref_by = execute_query("SELECT referred_by_id FROM users WHERE id=?", (user_id,), fetch=True)
     if ref_by and ref_by[0][0]:
-        pts = execute_with_retry("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0][0], user_id), fetch=True)
+        pts = execute_query("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0][0], user_id), fetch=True)
         if pts:
-            execute_with_retry("UPDATE users SET points = points - ? WHERE id=?", (pts[0][0], ref_by[0][0]), commit=True)
+            execute_query("UPDATE users SET points = points - ? WHERE id=?", (pts[0][0], ref_by[0][0]), commit=True)
             add_notification(ref_by[0][0], f"⚠️ A user you referred was deleted. {pts[0][0]} points removed.")
-    execute_with_retry("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id), commit=True)
-    execute_with_retry("DELETE FROM discount_history WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM notifications WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM user_repair_selections WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM referral_clicks WHERE referrer_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM daily_bonus WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM spin_history WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM user_badges WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM store_purchases WHERE user_id=?", (user_id,), commit=True)
-    execute_with_retry("DELETE FROM users WHERE id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id), commit=True)
+    execute_query("DELETE FROM discount_history WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM notifications WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM user_repair_selections WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM referral_clicks WHERE referrer_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM daily_bonus WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM spin_history WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM user_badges WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM store_purchases WHERE user_id=?", (user_id,), commit=True)
+    execute_query("DELETE FROM users WHERE id=?", (user_id,), commit=True)
 
 def reset_password(user_id):
     new_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
     hashed = hash_password(new_pass)
-    name = execute_with_retry("SELECT name FROM users WHERE id=?", (user_id,), fetch=True)[0][0]
-    execute_with_retry("UPDATE users SET password=? WHERE id=?", (hashed, user_id), commit=True)
+    name = execute_query("SELECT name FROM users WHERE id=?", (user_id,), fetch=True)[0][0]
+    execute_query("UPDATE users SET password=? WHERE id=?", (hashed, user_id), commit=True)
     add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
+
+# ========== TRACK REFERRAL CLICKS ==========
+def track_referral_click():
+    params = st.query_params
+    ref_code = params.get("ref")
+    if ref_code and not st.session_state.get("click_tracked", False):
+        try:
+            referrer = execute_query("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),), fetch=True)
+            if referrer:
+                ip = st.session_state.get("session_id", os.urandom(8).hex())
+                today = datetime.now().strftime("%Y-%m-%d")
+                existing = execute_query("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
+                                         (ref_code.upper(), ip, today), fetch=True)
+                if not existing:
+                    execute_query("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,0)",
+                                  (ref_code.upper(), referrer[0]['id'], ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+        except:
+            pass
+        st.session_state.click_tracked = True
+
+track_referral_click()
 
 # ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
@@ -404,14 +399,14 @@ with st.sidebar:
 
 # Notifications
 if st.session_state.logged_in:
-    notifs = execute_with_retry("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
-                                (st.session_state.user_id,), fetch=True)
+    notifs = execute_query("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
+                           (st.session_state.user_id,), fetch=True)
     if notifs:
         with st.expander(f"🔔 You have {len(notifs)} new notification(s)"):
             for n in notifs:
                 st.markdown(f'📢 {n[1]}')
         ids = [n[0] for n in notifs]
-        execute_with_retry(f"UPDATE notifications SET is_read=1 WHERE id IN ({','.join('?'*len(ids))})", ids, commit=True)
+        execute_query(f"UPDATE notifications SET is_read=1 WHERE id IN ({','.join('?'*len(ids))})", ids, commit=True)
 
 # Page rendering
 if st.session_state.page == "Home":
@@ -477,7 +472,7 @@ elif st.session_state.page == "Login":
         mobile = st.text_input("Mobile Number")
         password = st.text_input("Password", type="password")
         if st.form_submit_button("Login"):
-            user = execute_with_retry("SELECT * FROM users WHERE mobile=?", (mobile,), fetch=True)
+            user = execute_query("SELECT * FROM users WHERE mobile=?", (mobile,), fetch=True)
             if user and verify_password(user[0][3], password):
                 st.session_state.logged_in = True
                 st.session_state.user_id = user[0][0]
@@ -493,7 +488,7 @@ elif st.session_state.page == "Dashboard":
     if not st.session_state.logged_in:
         st.warning("Please login")
         st.stop()
-    user = execute_with_retry("SELECT name, mobile, referral_code, points FROM users WHERE id=?", (st.session_state.user_id,), fetch=True)[0]
+    user = execute_query("SELECT name, mobile, referral_code, points FROM users WHERE id=?", (st.session_state.user_id,), fetch=True)[0]
     name, mobile, code, points = user
     level, color = get_level(points)
     st.markdown(f"""
@@ -524,7 +519,7 @@ elif st.session_state.page == "Dashboard":
                 st.success(f"You won {won} points!")
                 st.rerun()
     
-    badges = execute_with_retry("SELECT badge_name FROM user_badges WHERE user_id=?", (st.session_state.user_id,), fetch=True)
+    badges = execute_query("SELECT badge_name FROM user_badges WHERE user_id=?", (st.session_state.user_id,), fetch=True)
     if badges:
         st.markdown("### 🏅 Your Badges: " + ", ".join([b[0] for b in badges]))
     
@@ -547,11 +542,11 @@ elif st.session_state.page == "Dashboard":
     
     if points >= 500:
         if st.button("🎁 Claim 500 PKR Discount (500 pts)"):
-            execute_with_retry("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
-                               (st.session_state.user_id, 500, 500.0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"), commit=True)
-            execute_with_retry("UPDATE users SET points = points - 500 WHERE id=?", (st.session_state.user_id,), commit=True)
+            execute_query("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
+                          (st.session_state.user_id, 500, 500.0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"), commit=True)
+            execute_query("UPDATE users SET points = points - 500 WHERE id=?", (st.session_state.user_id,), commit=True)
             add_notification(st.session_state.user_id, "🎁 You claimed 500 PKR discount! Show this at shop.")
-            st.success("🎉 Discount claimed!")
+            st.success("🎉 Discount claimed! Show your code at shop.")
             st.rerun()
     else:
         st.info(f"Need {500-points} more points for 500 PKR discount.")
@@ -565,7 +560,7 @@ elif st.session_state.page == "Dashboard":
 
 elif st.session_state.page == "Leaderboard":
     st.subheader("🏅 Top Players")
-    top = execute_with_retry("""
+    top = execute_query("""
         SELECT u.name, u.points, u.referral_code, u.join_date, COUNT(rh.id) as refs
         FROM users u LEFT JOIN referral_history rh ON u.id = rh.referrer_id
         GROUP BY u.id ORDER BY u.points DESC LIMIT 20
@@ -584,7 +579,7 @@ elif st.session_state.page == "Leaderboard":
 elif st.session_state.page == "ReferralHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("📜 Your Referral History")
-    hist = execute_with_retry("""
+    hist = execute_query("""
         SELECT u.name, rh.points_earned, rh.referral_date
         FROM referral_history rh JOIN users u ON rh.referred_user_id=u.id
         WHERE rh.referrer_id=? ORDER BY rh.referral_date DESC
@@ -595,44 +590,44 @@ elif st.session_state.page == "ReferralHistory":
 elif st.session_state.page == "DiscountHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("💰 Your Discount Claims")
-    hist = execute_with_retry("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC",
-                              (st.session_state.user_id,), fetch=True)
+    hist = execute_query("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC",
+                         (st.session_state.user_id,), fetch=True)
     for h in hist:
         st.write(f"🎁 {h[2][:10]} – -{h[0]} pts → {h[1]} PKR")
 
 elif st.session_state.page == "ClickAnalytics":
     if not st.session_state.logged_in: st.stop()
     st.subheader("📊 Click Analytics")
-    total_clicks = execute_with_retry("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id=?", (st.session_state.user_id,), fetch=True)[0][0]
-    conversions = execute_with_retry("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (st.session_state.user_id,), fetch=True)[0][0]
+    total_clicks = execute_query("SELECT COUNT(*) FROM referral_clicks WHERE referrer_id=?", (st.session_state.user_id,), fetch=True)[0][0]
+    conversions = execute_query("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (st.session_state.user_id,), fetch=True)[0][0]
     rate = (conversions/total_clicks*100) if total_clicks>0 else 0
     col1, col2, col3 = st.columns(3)
     col1.metric("👆 Clicks", total_clicks)
     col2.metric("✅ Signups", conversions)
     col3.metric("📈 Rate", f"{rate:.1f}%")
-    recent = execute_with_retry("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20",
-                                (st.session_state.user_id,), fetch=True)
+    recent = execute_query("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20",
+                           (st.session_state.user_id,), fetch=True)
     for r in recent:
         status = "✅ Converted" if r[1] else "⏳ Pending"
         st.write(f"{r[0]} → {status}")
 
 elif st.session_state.page == "RepairCategories":
     st.subheader("🔧 Report a Repair Issue")
-    cats = execute_with_retry("SELECT id, category_name, description FROM repair_categories", fetch=True)
+    cats = execute_query("SELECT id, category_name, description FROM repair_categories", fetch=True)
     for cat in cats:
         with st.expander(cat[1]):
             st.write(cat[2])
             if st.session_state.logged_in:
                 if st.button("Report this issue", key=f"rep_{cat[0]}"):
-                    execute_with_retry("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
-                                       (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+                    execute_query("INSERT INTO user_repair_selections (user_id, category_id, selection_date) VALUES (?,?,?)",
+                                  (st.session_state.user_id, cat[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
                     st.success("Issue reported! We'll contact you.")
             else:
                 st.caption("Login to report")
     if st.session_state.logged_in:
         st.markdown("---")
         st.subheader("Your Reported Issues")
-        reports = execute_with_retry("""
+        reports = execute_query("""
             SELECT rc.category_name, us.selection_date
             FROM user_repair_selections us JOIN repair_categories rc ON us.category_id=rc.id
             WHERE us.user_id=? ORDER BY us.selection_date DESC LIMIT 5
@@ -642,18 +637,18 @@ elif st.session_state.page == "RepairCategories":
 
 elif st.session_state.page == "Store":
     st.subheader("🛒 Points Store")
-    items = execute_with_retry("SELECT id, item_name, points_required, description FROM store_items", fetch=True)
+    items = execute_query("SELECT id, item_name, points_required, description FROM store_items", fetch=True)
     if st.session_state.logged_in:
-        points = execute_with_retry("SELECT points FROM users WHERE id=?", (st.session_state.user_id,), fetch=True)[0][0]
+        points = execute_query("SELECT points FROM users WHERE id=?", (st.session_state.user_id,), fetch=True)[0][0]
         st.info(f"Your Points: {points}")
         for item in items:
             with st.container():
                 st.markdown(f"**{item[1]}** – {item[2]} points")
                 if points >= item[2]:
                     if st.button(f"Redeem ({item[2]} pts)", key=f"buy_{item[0]}"):
-                        execute_with_retry("INSERT INTO store_purchases (user_id, item_id, purchase_date) VALUES (?,?,?)",
-                                           (st.session_state.user_id, item[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
-                        execute_with_retry("UPDATE users SET points = points - ? WHERE id=?", (item[2], st.session_state.user_id), commit=True)
+                        execute_query("INSERT INTO store_purchases (user_id, item_id, purchase_date) VALUES (?,?,?)",
+                                      (st.session_state.user_id, item[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+                        execute_query("UPDATE users SET points = points - ? WHERE id=?", (item[2], st.session_state.user_id), commit=True)
                         add_notification(st.session_state.user_id, f"🛒 You redeemed {item[1]}")
                         st.success(f"Redeemed {item[1]}! Show at shop.")
                         st.rerun()
@@ -672,10 +667,10 @@ elif st.session_state.page == "AdminPanel":
     with tab1:
         search = st.text_input("Search")
         if search:
-            users = execute_with_retry("SELECT id, name, mobile, referral_code, points, join_date FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC",
-                                       (f'%{search}%', f'%{search}%'), fetch=True)
+            users = execute_query("SELECT id, name, mobile, referral_code, points, join_date FROM users WHERE name LIKE ? OR mobile LIKE ? ORDER BY points DESC",
+                                  (f'%{search}%', f'%{search}%'), fetch=True)
         else:
-            users = execute_with_retry("SELECT id, name, mobile, referral_code, points, join_date FROM users ORDER BY points DESC", fetch=True)
+            users = execute_query("SELECT id, name, mobile, referral_code, points, join_date FROM users ORDER BY points DESC", fetch=True)
         for u in users:
             cols = st.columns([1,2,2,1,1,2,2])
             cols[0].write(u[0]); cols[1].write(u[1]); cols[2].write(u[2]); cols[3].write(u[3]); cols[4].write(f"⭐ {u[4]}"); cols[5].write(u[5][:10] if u[5] else "N/A")
@@ -688,48 +683,51 @@ elif st.session_state.page == "AdminPanel":
                     st.success("Deleted")
                     st.rerun()
     with tab2:
-        df_data = execute_with_retry("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date FROM users", fetch=True)
+        df_data = execute_query("SELECT id, name, mobile, referral_code, points, referred_by_id, join_date FROM users", fetch=True)
         df = pd.DataFrame(df_data, columns=["ID","Name","Mobile","Code","Points","Referred By","Join Date"])
         st.download_button("Download CSV", df.to_csv(index=False).encode(), "users.csv")
     with tab3:
         uploaded = st.file_uploader("Upload CSV")
         if uploaded:
             df = pd.read_csv(uploaded)
-            # Normalize columns if needed
+            # Simple normalization
+            if 'موبائل' in df.columns:
+                df.rename(columns={'موبائل': 'mobile', 'نام': 'name'}, inplace=True)
             if 'mobile' in df.columns:
                 added = 0
                 for _, row in df.iterrows():
                     mob = str(row.get("mobile", ""))
                     if not mob:
                         continue
-                    existing = execute_with_retry("SELECT id FROM users WHERE mobile=?", (mob,), fetch=True)
+                    existing = execute_query("SELECT id FROM users WHERE mobile=?", (mob,), fetch=True)
                     if not existing:
                         new_code = generate_unique_code()
                         hashed = hash_password("temp123")
-                        execute_with_retry("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                           (row.get("name",""), mob, hashed, new_code, int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+                        execute_query("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
+                                      (row.get("name",""), mob, hashed, new_code, int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
                         added += 1
                 st.success(f"Added {added} users.")
     with tab4:
         pts = st.number_input("Points to add to all", min_value=0, step=50)
         if st.button("Add to All"):
-            execute_with_retry("UPDATE users SET points = points + ?", (pts,), commit=True)
+            execute_query("UPDATE users SET points = points + ?", (pts,), commit=True)
             st.success(f"Added {pts} points to everyone.")
     with tab5:
-        clicks = execute_with_retry("SELECT u.name, rc.clicked_at, rc.is_converted FROM referral_clicks rc JOIN users u ON rc.referrer_id=u.id ORDER BY rc.clicked_at DESC", fetch=True)
+        clicks = execute_query("SELECT u.name, rc.clicked_at, rc.is_converted FROM referral_clicks rc JOIN users u ON rc.referrer_id=u.id ORDER BY rc.clicked_at DESC", fetch=True)
         for cl in clicks:
             st.write(f"{cl[0]} → {cl[1]} → {'Converted' if cl[2] else 'Pending'}")
     with tab6:
-        reports = execute_with_retry("SELECT u.name, u.mobile, rc.category_name, us.selection_date FROM user_repair_selections us JOIN users u ON us.user_id=u.id JOIN repair_categories rc ON us.category_id=rc.id ORDER BY us.selection_date DESC", fetch=True)
+        reports = execute_query("SELECT u.name, u.mobile, rc.category_name, us.selection_date FROM user_repair_selections us JOIN users u ON us.user_id=u.id JOIN repair_categories rc ON us.category_id=rc.id ORDER BY us.selection_date DESC", fetch=True)
         for r in reports:
             st.write(f"{r[0]} ({r[1]}) – {r[2]} – {r[3][:16]}")
     with tab7:
         st.warning("⚠️ This tool will delete the entire database and recreate it. All user data will be lost!")
         if st.button("🔥 Force Delete & Recreate Database (Admin Only)"):
             try:
-                os.remove('referral_game.db')
+                if os.path.exists('referral_game.db'):
+                    os.remove('referral_game.db')
                 st.success("Database deleted. Refreshing...")
-                st.cache_resource.clear()
+                st.cache_data.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Could not delete: {e}. Please delete manually via Manage app > Files.")
