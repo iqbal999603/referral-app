@@ -9,10 +9,8 @@ import pandas as pd
 import urllib.parse
 import time
 
-# ========== PAGE CONFIG ==========
 st.set_page_config(page_title="Ali Mobile Repair – Referral Race", page_icon="📱", layout="wide")
 
-# ========== GAMING THEME ==========
 st.markdown("""
 <style>
     .stApp { background: #0a0a0a; }
@@ -42,15 +40,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ========== SECURE SECRETS ==========
 try:
     ADMIN_SECRET = st.secrets["ADMIN_SECRET"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except:
-    st.error("⚠️ Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
+    st.error("Please set ADMIN_SECRET and ADMIN_PASSWORD in Streamlit Secrets!")
     st.stop()
 
-# ========== HELPER FUNCTIONS (DEFINED FIRST) ==========
 def hash_password(pwd):
     salt = os.urandom(16)
     dk = hashlib.pbkdf2_hmac('sha256', pwd.encode(), salt, 100000)
@@ -71,7 +67,6 @@ def get_level(points):
     elif points < 600: return ("Gold", "#ffd700")
     else: return ("Diamond", "#b9f2ff")
 
-# ========== DATABASE FUNCTIONS ==========
 def get_new_connection():
     conn = sqlite3.connect('referral_game.db', timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -92,16 +87,14 @@ def execute_query(query, params=(), fetch=False, commit=False, retries=5):
             if fetch:
                 result = cursor.fetchall()
                 return result
-            else:
-                return None
+            return None
         except sqlite3.OperationalError as e:
             if conn:
                 conn.rollback()
             if "locked" in str(e) or "busy" in str(e):
                 time.sleep(0.5 * (attempt + 1))
                 continue
-            else:
-                raise
+            raise
         finally:
             if conn and not fetch:
                 conn.close()
@@ -114,7 +107,6 @@ def generate_unique_code():
         if not existing:
             return code
 
-# ========== DATABASE INITIALIZATION ==========
 def init_database():
     execute_query("""CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, mobile TEXT UNIQUE, password TEXT,
@@ -151,7 +143,6 @@ def init_database():
     execute_query("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)", commit=True)
     execute_query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_referral ON referral_history(referrer_id, referred_user_id)", commit=True)
     
-    # Seed store items
     count = execute_query("SELECT COUNT(*) FROM store_items", fetch=True)[0][0]
     if count == 0:
         items = [
@@ -163,7 +154,6 @@ def init_database():
         for item in items:
             execute_query("INSERT INTO store_items (item_name, points_required, description) VALUES (?,?,?)", item, commit=True)
     
-    # Seed repair categories
     cat_count = execute_query("SELECT COUNT(*) FROM repair_categories", fetch=True)[0][0]
     if cat_count == 0:
         cats = [
@@ -179,7 +169,6 @@ def init_database():
         for cat in cats:
             execute_query("INSERT INTO repair_categories (category_name, description) VALUES (?,?)", cat, commit=True)
     
-    # Ensure official account
     official = execute_query("SELECT id FROM users WHERE referral_code='ALIOFFICIAL'", fetch=True)
     if not official:
         hashed = hash_password("admin123")
@@ -187,28 +176,25 @@ def init_database():
                       ("🏆 Ali Mobile Official", "03000000000", hashed, "ALIOFFICIAL", 0,
                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
     
-    # Add streak column if missing (migration)
     cols = execute_query("PRAGMA table_info(daily_bonus)", fetch=True)
     if 'streak' not in [c[1] for c in cols]:
         execute_query("ALTER TABLE daily_bonus ADD COLUMN streak INTEGER DEFAULT 1", commit=True)
 
-# Run init once at startup
 try:
     init_database()
 except Exception as e:
     st.error(f"Database init error: {e}")
-    st.info("Click below to repair automatically (will delete old database and recreate).")
-    if st.button("🛠️ Force Repair Database (Admin Only)"):
+    st.info("Click below to repair (will delete old database).")
+    if st.button("Force Repair Database"):
         try:
             if os.path.exists('referral_game.db'):
                 os.remove('referral_game.db')
-            st.success("Database deleted. Please refresh the page.")
+            st.success("Database deleted. Please refresh.")
             st.stop()
         except:
-            st.error("Could not delete. Please go to Manage app > Files and delete 'referral_game.db' manually.")
+            st.error("Could not delete. Delete manually via Manage app > Files.")
     st.stop()
 
-# ========== OTHER HELPER FUNCTIONS (that use DB) ==========
 def add_notification(user_id, message):
     execute_query("INSERT INTO notifications (user_id, message, created_at) VALUES (?,?,?)",
                   (user_id, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
@@ -237,18 +223,18 @@ def register_user(name, mobile, password, ref_code):
                   (ref_code.upper(), referrer[0]['id']))
         conn.commit()
         conn.close()
-        add_notification(referrer[0]['id'], f"🎉 New user {name} registered using your code! +50 points.")
+        add_notification(referrer[0]['id'], f"New user {name} registered using your code! +50 points.")
         ref_count = execute_query("SELECT COUNT(*) FROM referral_history WHERE referrer_id=?", (referrer[0]['id'],), fetch=True)[0][0]
         if ref_count == 1:
-            add_notification(referrer[0]['id'], "🏅 You earned the badge: First Referral 🥉")
+            add_notification(referrer[0]['id'], "First Referral badge earned!")
             execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
                           (referrer[0]['id'], "First Referral 🥉", join_date), commit=True)
         elif ref_count == 5:
-            add_notification(referrer[0]['id'], "🏅 You earned the badge: 5 Referrals 🥈")
+            add_notification(referrer[0]['id'], "5 Referrals badge earned!")
             execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
                           (referrer[0]['id'], "5 Referrals 🥈", join_date), commit=True)
         elif ref_count == 10:
-            add_notification(referrer[0]['id'], "🏅 You earned the badge: 10 Referrals 🥇")
+            add_notification(referrer[0]['id'], "10 Referrals badge earned!")
             execute_query("INSERT INTO user_badges (user_id, badge_name, earned_date) VALUES (?,?,?)",
                           (referrer[0]['id'], "10 Referrals 🥇", join_date), commit=True)
         return True, new_code
@@ -285,11 +271,11 @@ def spin_wheel(user_id):
     won = random.choices(prizes, weights=weights, k=1)[0]
     execute_query("INSERT INTO spin_history (user_id, points_won, spin_date) VALUES (?,?,?)", (user_id, won, today), commit=True)
     execute_query("UPDATE users SET points = points + ? WHERE id=?", (won, user_id), commit=True)
-    add_notification(user_id, f"🎰 You won {won} points from the lucky wheel!")
+    add_notification(user_id, f"You won {won} points from the lucky wheel!")
     return won, "success"
 
 def get_social_urls(referral_link, code, name):
-    msg = f"📱 Ali Mobile Repair - Referral Race!\n\nMy referral code: {code}\nJoin: {referral_link}\n\n50 points per referral! 500 points = 500 PKR discount!"
+    msg = f"Ali Mobile Repair - Referral Race!\nMy referral code: {code}\nJoin: {referral_link}\n50 points per referral! 500 points = 500 PKR discount!"
     encoded = urllib.parse.quote(msg)
     encoded_link = urllib.parse.quote(referral_link)
     return {
@@ -305,7 +291,7 @@ def delete_user(user_id):
         pts = execute_query("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0][0], user_id), fetch=True)
         if pts:
             execute_query("UPDATE users SET points = points - ? WHERE id=?", (pts[0][0], ref_by[0][0]), commit=True)
-            add_notification(ref_by[0][0], f"⚠️ A user you referred was deleted. {pts[0][0]} points removed.")
+            add_notification(ref_by[0][0], f"User you referred was deleted. {pts[0][0]} points removed.")
     execute_query("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id), commit=True)
     execute_query("DELETE FROM discount_history WHERE user_id=?", (user_id,), commit=True)
     execute_query("DELETE FROM notifications WHERE user_id=?", (user_id,), commit=True)
@@ -322,7 +308,7 @@ def reset_password(user_id):
     hashed = hash_password(new_pass)
     name = execute_query("SELECT name FROM users WHERE id=?", (user_id,), fetch=True)[0][0]
     execute_query("UPDATE users SET password=? WHERE id=?", (hashed, user_id), commit=True)
-    add_notification(user_id, f"🔐 Your password was reset by admin. New password: {new_pass}")
+    add_notification(user_id, f"Your password was reset by admin. New password: {new_pass}")
     return new_pass, name
 
 def track_referral_click():
@@ -343,7 +329,6 @@ def track_referral_click():
             pass
         st.session_state.click_tracked = True
 
-# ========== SESSION STATE ==========
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_id = None
@@ -352,7 +337,8 @@ if 'logged_in' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
 
-# ========== UI HEADER ==========
+track_referral_click()
+
 st.markdown("""
 <div style="text-align:center; padding:20px; background:linear-gradient(135deg, #121212, #1e1e2f); border-radius:20px; border:1px solid #ff9f43; margin-bottom:20px;">
     <h1 class="neon-text"> Ali Mobile Repair  Referral System</h1>
@@ -361,10 +347,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ========== NAVIGATION ==========
 page_map = {
     "🏠 Home": "Home", "✨ Register": "Register", "🔐 Login": "Login",
-    "🏆 Dashboard / Profile": "Dashboard", "🏅 Leaderboard": "Leaderboard",
+    "🏆 Dashboard": "Dashboard", "🏅 Leaderboard": "Leaderboard",
     "📜 Referral History": "ReferralHistory", "💰 Discount History": "DiscountHistory",
     "📊 Click Analytics": "ClickAnalytics", "🔧 Repair Issues": "RepairCategories",
     "🛒 Points Store": "Store", "👑 Admin": "AdminPanel"
@@ -374,7 +359,7 @@ with st.sidebar:
     st.markdown("## 🧭 Menu")
     menu_options = ["🏠 Home", "✨ Register", "🔐 Login", "🏅 Leaderboard", "🔧 Repair Issues", "🛒 Points Store"]
     if st.session_state.logged_in:
-        menu_options = ["🏆 Dashboard / Profile", "🏅 Leaderboard", "📜 Referral History", "💰 Discount History",
+        menu_options = ["🏆 Dashboard", "🏅 Leaderboard", "📜 Referral History", "💰 Discount History",
                         "📊 Click Analytics", "🔧 Repair Issues", "🛒 Points Store"]
     admin_input = st.text_input("Admin Secret", type="password", placeholder="Enter secret for admin", key="admin_secret")
     if admin_input == ADMIN_SECRET:
@@ -384,7 +369,6 @@ with st.sidebar:
         st.session_state.page = page_map[selected]
         st.rerun()
 
-# ========== NOTIFICATIONS ==========
 if st.session_state.logged_in:
     notifs = execute_query("SELECT id, message FROM notifications WHERE user_id=? AND is_read=0 ORDER BY created_at DESC",
                            (st.session_state.user_id,), fetch=True)
@@ -396,7 +380,6 @@ if st.session_state.logged_in:
         placeholders = ','.join('?'*len(ids))
         execute_query(f"UPDATE notifications SET is_read=1 WHERE id IN ({placeholders})", ids, commit=True)
 
-# ========== PAGE RENDERING ==========
 if st.session_state.page == "Home":
     if not st.session_state.logged_in:
         st.markdown("""
@@ -446,7 +429,7 @@ elif st.session_state.page == "Register":
                 with st.spinner("Registering..."):
                     success, result = register_user(name, mobile, password, ref_code)
                     if success:
-                        st.success(f"✅ Registration complete! Your referral code: {result}")
+                        st.success(f"Registration complete! Your referral code: {result}")
                         st.balloons()
                     else:
                         st.error(f"Registration failed: {result}")
@@ -511,7 +494,6 @@ elif st.session_state.page == "Dashboard":
     if badges:
         st.markdown("### 🏅 Your Badges: " + ", ".join([b[0] for b in badges]))
     
-    # Referral link
     try:
         host = st.get_option("server.baseUrlPath") or "alimobile-referral.streamlit.app"
         if host.startswith("/"):
@@ -533,8 +515,8 @@ elif st.session_state.page == "Dashboard":
             execute_query("INSERT INTO discount_history (user_id, points_used, discount_amount, claim_date, status) VALUES (?,?,?,?,?)",
                           (st.session_state.user_id, 500, 500.0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "claimed"), commit=True)
             execute_query("UPDATE users SET points = points - 500 WHERE id=?", (st.session_state.user_id,), commit=True)
-            add_notification(st.session_state.user_id, "🎁 You claimed 500 PKR discount! Show this at shop.")
-            st.success("🎉 Discount claimed! Show your code at shop.")
+            add_notification(st.session_state.user_id, "You claimed 500 PKR discount! Show this at shop.")
+            st.success("Discount claimed! Show your code at shop.")
             st.rerun()
     else:
         st.info(f"Need {500-points} more points for 500 PKR discount.")
@@ -548,11 +530,7 @@ elif st.session_state.page == "Dashboard":
 
 elif st.session_state.page == "Leaderboard":
     st.subheader("🏅 Top Players")
-    top = execute_query("""
-        SELECT u.name, u.points, u.referral_code, u.join_date, COUNT(rh.id) as refs
-        FROM users u LEFT JOIN referral_history rh ON u.id = rh.referrer_id
-        GROUP BY u.id ORDER BY u.points DESC LIMIT 20
-    """, fetch=True)
+    top = execute_query("SELECT u.name, u.points, u.referral_code, u.join_date, COUNT(rh.id) as refs FROM users u LEFT JOIN referral_history rh ON u.id = rh.referrer_id GROUP BY u.id ORDER BY u.points DESC LIMIT 20", fetch=True)
     for i, u in enumerate(top[:10], 1):
         col1, col2, col3, col4 = st.columns([1,2,2,1])
         col1.write(f"#{i}")
@@ -567,19 +545,14 @@ elif st.session_state.page == "Leaderboard":
 elif st.session_state.page == "ReferralHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("📜 Your Referral History")
-    hist = execute_query("""
-        SELECT u.name, rh.points_earned, rh.referral_date
-        FROM referral_history rh JOIN users u ON rh.referred_user_id=u.id
-        WHERE rh.referrer_id=? ORDER BY rh.referral_date DESC
-    """, (st.session_state.user_id,), fetch=True)
+    hist = execute_query("SELECT u.name, rh.points_earned, rh.referral_date FROM referral_history rh JOIN users u ON rh.referred_user_id=u.id WHERE rh.referrer_id=? ORDER BY rh.referral_date DESC", (st.session_state.user_id,), fetch=True)
     for h in hist:
         st.write(f"✅ {h[2][:10]} – {h[0]} → +{h[1]} pts")
 
 elif st.session_state.page == "DiscountHistory":
     if not st.session_state.logged_in: st.stop()
     st.subheader("💰 Your Discount Claims")
-    hist = execute_query("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC",
-                         (st.session_state.user_id,), fetch=True)
+    hist = execute_query("SELECT points_used, discount_amount, claim_date FROM discount_history WHERE user_id=? ORDER BY claim_date DESC", (st.session_state.user_id,), fetch=True)
     for h in hist:
         st.write(f"🎁 {h[2][:10]} – -{h[0]} pts → {h[1]} PKR")
 
@@ -593,8 +566,7 @@ elif st.session_state.page == "ClickAnalytics":
     col1.metric("👆 Clicks", total_clicks)
     col2.metric("✅ Signups", conversions)
     col3.metric("📈 Rate", f"{rate:.1f}%")
-    recent = execute_query("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20",
-                           (st.session_state.user_id,), fetch=True)
+    recent = execute_query("SELECT clicked_at, is_converted FROM referral_clicks WHERE referrer_id=? ORDER BY clicked_at DESC LIMIT 20", (st.session_state.user_id,), fetch=True)
     for r in recent:
         status = "✅ Converted" if r[1] else "⏳ Pending"
         st.write(f"{r[0]} → {status}")
@@ -615,11 +587,7 @@ elif st.session_state.page == "RepairCategories":
     if st.session_state.logged_in:
         st.markdown("---")
         st.subheader("Your Reported Issues")
-        reports = execute_query("""
-            SELECT rc.category_name, us.selection_date
-            FROM user_repair_selections us JOIN repair_categories rc ON us.category_id=rc.id
-            WHERE us.user_id=? ORDER BY us.selection_date DESC LIMIT 5
-        """, (st.session_state.user_id,), fetch=True)
+        reports = execute_query("SELECT rc.category_name, us.selection_date FROM user_repair_selections us JOIN repair_categories rc ON us.category_id=rc.id WHERE us.user_id=? ORDER BY us.selection_date DESC LIMIT 5", (st.session_state.user_id,), fetch=True)
         for r in reports:
             st.write(f"📌 {r[1][:10]}: {r[0]}")
 
@@ -637,7 +605,7 @@ elif st.session_state.page == "Store":
                         execute_query("INSERT INTO store_purchases (user_id, item_id, purchase_date) VALUES (?,?,?)",
                                       (st.session_state.user_id, item[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
                         execute_query("UPDATE users SET points = points - ? WHERE id=?", (item[2], st.session_state.user_id), commit=True)
-                        add_notification(st.session_state.user_id, f"🛒 You redeemed {item[1]}")
+                        add_notification(st.session_state.user_id, f"You redeemed {item[1]}")
                         st.success(f"Redeemed {item[1]}! Show at shop.")
                         st.rerun()
                 else:
@@ -649,7 +617,7 @@ elif st.session_state.page == "AdminPanel":
     if admin_input != ADMIN_SECRET:
         st.error("Admin secret required")
         st.stop()
-    st.success("👑 Admin Panel")
+    st.success("Admin Panel")
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Users", "Export", "Upload CSV", "Bulk Points", "Clicks Report", "Repair Reports", "Database Tools"])
     
     with tab1:
@@ -675,11 +643,79 @@ elif st.session_state.page == "AdminPanel":
         df = pd.DataFrame(df_data, columns=["ID","Name","Mobile","Code","Points","Referred By","Join Date"])
         st.download_button("Download CSV", df.to_csv(index=False).encode(), "users.csv")
     with tab3:
-        st.subheader("📂 CSV Upload Instructions")
+        st.subheader("CSV Upload Instructions")
         st.markdown("""
-        **CSV Format Requirements:**
-        - `name` (or `نام`) : Full name
-        - `mobile` (or `موبائل`) : Mobile number (unique)
-        - `points` (optional, default 0) : Starting points
-        
+        CSV must have columns: name (or 'نام'), mobile (or 'موبائل'), points (optional).
         Example:
+        name,mobile,points
+        Ali Raza,03001234567,100
+        Sara Khan,03007654321,50
+        """)
+        uploaded = st.file_uploader("Upload CSV", type="csv")
+        if uploaded:
+            try:
+                df = pd.read_csv(uploaded)
+                df.columns = df.columns.str.strip().str.lower()
+                if 'موبائل' in df.columns:
+                    df.rename(columns={'موبائل': 'mobile'}, inplace=True)
+                if 'نام' in df.columns:
+                    df.rename(columns={'نام': 'name'}, inplace=True)
+                if 'phone' in df.columns and 'mobile' not in df.columns:
+                    df.rename(columns={'phone': 'mobile'}, inplace=True)
+                if 'full name' in df.columns and 'name' not in df.columns:
+                    df.rename(columns={'full name': 'name'}, inplace=True)
+                if 'points' not in df.columns:
+                    df['points'] = 0
+                df['points'] = pd.to_numeric(df['points'], errors='coerce').fillna(0).astype(int)
+                if 'mobile' not in df.columns:
+                    st.error("CSV must contain a 'mobile' column")
+                elif 'name' not in df.columns:
+                    st.error("CSV must contain a 'name' column")
+                else:
+                    added = 0
+                    skipped = 0
+                    for idx, row in df.iterrows():
+                        mob = str(row['mobile']).strip()
+                        if not mob:
+                            skipped += 1
+                            continue
+                        existing = execute_query("SELECT id FROM users WHERE mobile=?", (mob,), fetch=True)
+                        if existing:
+                            skipped += 1
+                            continue
+                        try:
+                            new_code = generate_unique_code()
+                            hashed = hash_password("temp123")
+                            execute_query("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
+                                          (str(row['name'])[:100], mob, hashed, new_code, int(row['points']),
+                                           datetime.now().strftime("%Y-%m-%d %H:%M:%S")), commit=True)
+                            added += 1
+                        except:
+                            skipped += 1
+                    st.success(f"Added {added} users, skipped {skipped}")
+            except Exception as e:
+                st.error(f"CSV read error: {e}")
+    with tab4:
+        pts = st.number_input("Points to add to all", min_value=0, step=50)
+        if st.button("Add to All"):
+            execute_query("UPDATE users SET points = points + ?", (pts,), commit=True)
+            st.success(f"Added {pts} points to everyone.")
+    with tab5:
+        clicks = execute_query("SELECT u.name, rc.clicked_at, rc.is_converted FROM referral_clicks rc JOIN users u ON rc.referrer_id=u.id ORDER BY rc.clicked_at DESC", fetch=True)
+        for cl in clicks:
+            st.write(f"{cl[0]} → {cl[1]} → {'Converted' if cl[2] else 'Pending'}")
+    with tab6:
+        reports = execute_query("SELECT u.name, u.mobile, rc.category_name, us.selection_date FROM user_repair_selections us JOIN users u ON us.user_id=u.id JOIN repair_categories rc ON us.category_id=rc.id ORDER BY us.selection_date DESC", fetch=True)
+        for r in reports:
+            st.write(f"{r[0]} ({r[1]}) – {r[2]} – {r[3][:16]}")
+    with tab7:
+        st.warning("This will delete the entire database. All user data will be lost!")
+        if st.button("Force Delete & Recreate Database"):
+            try:
+                if os.path.exists('referral_game.db'):
+                    os.remove('referral_game.db')
+                st.success("Database deleted. Refreshing...")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not delete: {e}. Delete manually via Manage app > Files.")
