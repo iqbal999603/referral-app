@@ -108,8 +108,14 @@ def verify_password(stored, provided):
     except:
         return False
 
-def generate_code():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+def generate_unique_code(conn):
+    """Generate unique 6-character referral code (fix #5)"""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE referral_code=?", (code,))
+        if not c.fetchone():
+            return code
 
 @st.cache_resource
 def get_db_connection():
@@ -132,7 +138,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS referral_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   referrer_id INTEGER, referred_user_id INTEGER,
-                  points_earned INTEGER, referral_date TEXT)''')
+                  points_earned INTEGER, referral_date TEXT,
+                  UNIQUE(referrer_id, referred_user_id))''')  # Fix #1: prevent duplicate referral
     c.execute('''CREATE TABLE IF NOT EXISTS discount_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, points_used INTEGER,
@@ -157,7 +164,7 @@ def init_db():
     # Game-specific tables
     c.execute('''CREATE TABLE IF NOT EXISTS daily_bonus
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER, claim_date TEXT)''')
+                  user_id INTEGER, claim_date TEXT, streak INTEGER DEFAULT 1)''')  # Fix #3: add streak column
     c.execute('''CREATE TABLE IF NOT EXISTS spin_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, points_won INTEGER, spin_date TEXT)''')
@@ -170,6 +177,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS store_purchases
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER, item_id INTEGER, purchase_date TEXT)''')
+    
+    # Indexes for performance (500 users)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_referral_clicks_code ON referral_clicks(referral_code)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)")
     
     # Seed store items if empty
     c.execute("SELECT COUNT(*) FROM store_items")
@@ -207,6 +220,32 @@ def init_db():
 
 init_db()
 
+# ========== TRACK REFERRAL CLICKS FROM URL (Fix #2) ==========
+def track_referral_click():
+    """Check URL for ?ref=CODE and record a click if not already tracked today for this IP"""
+    params = st.query_params
+    ref_code = params.get("ref")
+    if ref_code and not st.session_state.get("click_tracked", False):
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE referral_code=?", (ref_code.upper(),))
+        referrer = c.fetchone()
+        if referrer:
+            # Get IP (dummy, but we use session to avoid duplicate clicks)
+            ip = st.session_state.get("session_id", os.urandom(8).hex())
+            today = datetime.now().strftime("%Y-%m-%d")
+            # Avoid duplicate clicks from same IP same day
+            c.execute("SELECT id FROM referral_clicks WHERE referral_code=? AND ip_address=? AND DATE(clicked_at)=?",
+                      (ref_code.upper(), ip, today))
+            if not c.fetchone():
+                c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,0)",
+                          (ref_code.upper(), referrer[0], ip, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                conn.commit()
+        st.session_state.click_tracked = True
+
+# Call this at the very beginning
+track_referral_click()
+
 # ========== GAME FUNCTIONS ==========
 def add_notification(user_id, message):
     conn = get_db_connection()
@@ -243,17 +282,32 @@ def get_level(points):
     else: return ("Diamond", "#b9f2ff")
 
 def daily_bonus_claim(user_id):
+    """Fixed streak logic (#3) – consecutive days"""
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today))
+    
+    # Check if already claimed today
+    c.execute("SELECT id FROM daily_bonus WHERE user_id=? AND claim_date=?", (user_id, today))
     if c.fetchone():
         return 0, "already_claimed"
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    c.execute("SELECT COUNT(DISTINCT claim_date) FROM daily_bonus WHERE user_id=? AND claim_date >= ?", (user_id, week_ago))
-    streak = c.fetchone()[0]
-    bonus = 5 if streak < 6 else 50
-    c.execute("INSERT INTO daily_bonus (user_id, claim_date) VALUES (?,?)", (user_id, today))
+    
+    # Get last claim date
+    c.execute("SELECT claim_date, streak FROM daily_bonus WHERE user_id=? ORDER BY claim_date DESC LIMIT 1", (user_id,))
+    last = c.fetchone()
+    if last:
+        last_date = datetime.strptime(last[0], "%Y-%m-%d").date()
+        yesterday = datetime.now().date() - timedelta(days=1)
+        if last_date == yesterday:
+            new_streak = last[1] + 1
+        else:
+            new_streak = 1
+    else:
+        new_streak = 1
+    
+    bonus = 5 if new_streak < 7 else 50
+    # Insert with streak
+    c.execute("INSERT INTO daily_bonus (user_id, claim_date, streak) VALUES (?,?,?)", (user_id, today, new_streak))
     c.execute("UPDATE users SET points = points + ? WHERE id=?", (bonus, user_id))
     conn.commit()
     check_and_award_badges(user_id)
@@ -295,6 +349,15 @@ def normalize_csv_columns(df):
 def delete_user(user_id):
     conn = get_db_connection()
     c = conn.cursor()
+    # Before deleting, deduct points from referrer if any (optional but honest)
+    c.execute("SELECT referred_by_id FROM users WHERE id=?", (user_id,))
+    ref_by = c.fetchone()
+    if ref_by and ref_by[0]:
+        c.execute("SELECT points_earned FROM referral_history WHERE referrer_id=? AND referred_user_id=?", (ref_by[0], user_id))
+        pts = c.fetchone()
+        if pts:
+            c.execute("UPDATE users SET points = points - ? WHERE id=?", (pts[0], ref_by[0]))
+            add_notification(ref_by[0], f"⚠️ A user you referred was deleted. {pts[0]} points removed.")
     c.execute("DELETE FROM referral_history WHERE referrer_id=? OR referred_user_id=?", (user_id, user_id))
     c.execute("DELETE FROM discount_history WHERE user_id=?", (user_id,))
     c.execute("DELETE FROM notifications WHERE user_id=?", (user_id,))
@@ -449,22 +512,40 @@ elif st.session_state.page == "Register":
                     if c.fetchone():
                         st.error("Mobile already registered.")
                     else:
-                        new_code = generate_code()
-                        hashed = hash_password(password)
-                        join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
-                        c.execute("INSERT INTO referral_clicks (referral_code, referrer_id, ip_address, clicked_at, is_converted) VALUES (?,?,?,?,?)",
-                                  (ref_code.upper(), ref_user[0], "unknown", join_date, 1))
-                        c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
-                                  (name, mobile, hashed, new_code, 0, ref_user[0], join_date))
-                        user_id = c.lastrowid
-                        c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
-                                  (ref_user[0], user_id, 50, join_date))
-                        conn.commit()
-                        add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
-                        check_and_award_badges(ref_user[0])
-                        st.success(f"✅ Registration complete! Your referral code: {new_code}")
-                        st.session_state.registration_success = True
+                        # === FIXED TRANSACTION (Fix #1 & #4) ===
+                        try:
+                            conn.execute("BEGIN")
+                            # Check if this referral already counted (duplicate protection)
+                            c.execute("SELECT id FROM referral_history WHERE referrer_id=? AND referred_user_id IS NULL", (ref_user[0],))
+                            # Not needed, but we will insert only after user created
+                            new_code = generate_unique_code(conn)  # Fix #5
+                            hashed = hash_password(password)
+                            join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            # Insert new user
+                            c.execute("INSERT INTO users (name, mobile, password, referral_code, points, referred_by_id, join_date) VALUES (?,?,?,?,?,?,?)",
+                                      (name, mobile, hashed, new_code, 0, ref_user[0], join_date))
+                            new_user_id = c.lastrowid
+                            
+                            # Add points to referrer and record referral history
+                            c.execute("UPDATE users SET points = points + 50 WHERE id=?", (ref_user[0],))
+                            c.execute("INSERT INTO referral_history (referrer_id, referred_user_id, points_earned, referral_date) VALUES (?,?,?,?)",
+                                      (ref_user[0], new_user_id, 50, join_date))
+                            
+                            # Mark the corresponding click as converted (Fix #2)
+                            c.execute("UPDATE referral_clicks SET is_converted=1 WHERE referral_code=? AND referrer_id=? AND is_converted=0 ORDER BY clicked_at DESC LIMIT 1",
+                                      (ref_code.upper(), ref_user[0]))
+                            
+                            conn.commit()
+                            add_notification(ref_user[0], f"🎉 New user {name} registered using your code! +50 points.")
+                            check_and_award_badges(ref_user[0])
+                            st.success(f"✅ Registration complete! Your referral code: {new_code}")
+                            st.balloons()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"Registration failed due to a system error. Please try again. ({str(e)})")
+                        finally:
+                            conn.close()
 
 elif st.session_state.page == "Login":
     if st.session_state.logged_in:
@@ -536,9 +617,16 @@ elif st.session_state.page == "Dashboard":
     if badges:
         st.markdown("### 🏅 Your Badges: " + ", ".join(badges))
 
-    # Referral Link
-    host = st.query_params.get("host", "alimobile-referral.streamlit.app")
-    referral_link = f"https://{host}/?ref={code}"
+    # Referral Link - dynamic host
+    try:
+        # Get host from streamlit's server (best effort)
+        host = st.get_option("server.baseUrlPath") or "alimobile-referral.streamlit.app"
+        if host.startswith("/"):
+            host = host.lstrip("/")
+        base = f"https://{host}" if "://" not in host else host
+    except:
+        base = "https://alimobile-referral.streamlit.app"
+    referral_link = f"{base}/?ref={code}"
     st.markdown("### 📤 Your Referral Link")
     st.code(referral_link)
     urls = get_social_urls(referral_link, code, name)
@@ -562,7 +650,7 @@ elif st.session_state.page == "Dashboard":
         st.info(f"Need {500-points} more points for 500 PKR discount.")
 
     if st.button("🚪 Logout"):
-        for key in ['logged_in', 'user_id', 'user_name', 'user_code']:
+        for key in ['logged_in', 'user_id', 'user_name', 'user_code', 'click_tracked']:
             if key in st.session_state:
                 del st.session_state[key]
         st.session_state.page = "Home"
@@ -731,7 +819,7 @@ elif st.session_state.page == "AdminPanel":
                     c.execute("SELECT id FROM users WHERE mobile=?", (mobile,))
                     if not c.fetchone():
                         c.execute("INSERT INTO users (name, mobile, password, referral_code, points, join_date) VALUES (?,?,?,?,?,?)",
-                                  (row.get("name",""), mobile, hash_password("temp123"), generate_code(), int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                  (row.get("name",""), mobile, hash_password("temp123"), generate_unique_code(conn), int(row.get("points",0)), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         added += 1
                     else:
                         skipped += 1
@@ -755,10 +843,3 @@ elif st.session_state.page == "AdminPanel":
         reports = c.fetchall()
         for r in reports:
             st.write(f"{r[0]} ({r[1]}) – {r[2]} – {r[3][:16]}")
-
-# ========== FOOTER ==========
-st.markdown("""
-<div style="position:fixed; bottom:0; left:0; width:100%; background:#111; text-align:center; padding:8px; font-size:12px; color:#aaa; border-top:1px solid #333;">
-    © 2026-2027 Ali Mobile Repair – Level Up Your Rewards!
-</div>
-""", unsafe_allow_html=True)
