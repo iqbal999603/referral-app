@@ -344,11 +344,11 @@ st.markdown("""
     <h1 class="neon-text"> Ali Mobile Repair  Referral System</h1>
     <p style="color:#ff9f43;">Ali Laal Road, Layyah | 📞 03006762827</p>
     <p style="color:#e0e0e0;">⚡ Race to the Top! Refer, Earn, Spin & Win!</p>
-    <a href="https://layyahjobs.streamlit.app/" target="_blank" 
+    <a href="https://ideaevolution.streamlit.app/" target="_blank" 
        style="display:inline-block; margin-top:12px; background:gold; color:#1a0a0a; 
               padding:10px 30px; border-radius:50px; text-decoration:none; 
               font-weight:bold; font-size:18px; box-shadow:0 0 10px gold;">
-       💼 Layyah Jobs 💼
+       💼 آئیڈیا ایوولوشن انجن 💼
     </a>
 </div>
 """, unsafe_allow_html=True)
